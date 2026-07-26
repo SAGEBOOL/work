@@ -46,6 +46,15 @@ export const PROVIDERS = {
     doc: 'https://openrouter.ai/keys',
     // 显式支持浏览器跨域，纯前端架构最稳
     browserOk: true
+  },
+  ollama: {
+    id: 'ollama', name: 'Ollama 本地模型',
+    base: 'http://localhost:11434',
+    models: [],
+    doc: 'https://ollama.com/',
+    // 浏览器调用 Ollama 需本地以 OLLAMA_ORIGINS="*" 启动（见设置页提示）
+    browserOk: true,
+    isLocal: true
   }
 }
 
@@ -71,6 +80,57 @@ export async function callChat(opts = {}) {
   const providerId = opts.provider || s.defaultProvider
   const p = PROVIDERS[providerId]
   if (!p) throw new Error('未知供应商: ' + providerId)
+
+  // ---------- 本地模型 Ollama 分支 ----------
+  if (p.isLocal) {
+    const cfg = s.providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
+    const model = opts.model || cfg.model || 'llama3.1'
+    const url = (cfg.baseUrl || 'http://localhost:11434').replace(/\/$/, '') + '/api/chat'
+    const body = { model, messages: opts.messages, stream: !!opts.onToken }
+
+    let res
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    } catch (netErr) {
+      throw new Error('✗ 无法连接本地 Ollama。请确认：1) Ollama 已启动；2) 模型已拉取；3) 以 CORS 方式启动：OLLAMA_ORIGINS="*" ollama serve')
+    }
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      throw new Error('Ollama 调用失败 (' + res.status + ')：' + errText.slice(0, 200) + '（请检查模型名与 Ollama 状态）')
+    }
+
+    if (opts.onToken) {
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const json = JSON.parse(line)
+            const delta = json.message?.content || ''
+            if (delta) opts.onToken(delta)
+          } catch { /* ignore */ }
+        }
+      }
+      return
+    }
+
+    const json = await res.json()
+    return json.message?.content || ''
+  }
+
+  // ---------- 云厂商 OpenAI 兼容分支 ----------
   const key = s.apiKeys[providerId]
   if (!key) throw new Error('未配置 ' + p.name + ' 的 API Key，请到「设置」填写')
   const model = opts.model || s.defaultModel
