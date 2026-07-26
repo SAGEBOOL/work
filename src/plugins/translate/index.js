@@ -1,10 +1,11 @@
 // 翻译：示范 AI 网关 + 技能包(skill pack) 模式。
-// 提示词根据设置中心的「行业标签 / 数据源」自动调整，体现解耦与复用。
+// 源语言支持「自动检测」，目标语言支持「中文」。提示词根据设置中心的行业标签自动调整。
 import { el, clear, toast } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
 import { callChat, PROVIDERS } from '../../core/aiGateway.js'
 
-const LANGS = ['英语', '日语', '韩语', '法语', '德语', '西班牙语', '俄语']
+const SOURCES = ['自动检测', '中文', '英语', '日语', '韩语', '法语', '德语', '西班牙语', '俄语']
+const TARGETS = ['中文', '英语', '日语', '韩语', '法语', '德语', '西班牙语', '俄语']
 
 export const translatePlugin = {
   id: 'translate',
@@ -15,17 +16,19 @@ export const translatePlugin = {
     const s = getSettings()
 
     const input = el('textarea', { placeholder: '输入要翻译的文本…' })
-    const langSelect = el('select', {}, LANGS.map((l) => el('option', { value: l }, [l])))
+    const srcSelect = el('select', {}, SOURCES.map((l) => el('option', { value: l }, [l])))
+    const tgtSelect = el('select', {}, TARGETS.map((l) => el('option', { value: l }, [l])))
     const out = el('div', { class: 'card', style: 'min-height:120px;white-space:pre-wrap' }, ['译文将显示在这里…'])
     const btn = el('button', { class: 'btn' }, ['翻译'])
     const alert = el('div', {})
 
     // —— skill pack：把领域/数据源信息拼进系统提示词 ——
-    const buildMessages = (text, target) => {
+    const buildMessages = (text, source, target) => {
       const st = getSettings()
       const industries = st.industry.join('、') || '通用'
+      const srcDesc = source === '自动检测' ? '自动检测原文语言' : `从${source}`
       const sys = `你是一名专业翻译。用户行业背景：${industries}。
-请将用户文本准确、自然地翻译成${target}，保留专有名词与语气，只输出译文本身，不要解释。`
+请将用户文本${srcDesc}准确、自然地翻译成${target}，保留专有名词与语气，只输出译文本身，不要解释。`
       return [
         { role: 'system', content: sys },
         { role: 'user', content: text }
@@ -42,12 +45,17 @@ export const translatePlugin = {
         alert.textContent = '未配置默认 AI Key，请到「设置」填写后重试。'
         return
       }
+      if (srcSelect.value !== '自动检测' && srcSelect.value === tgtSelect.value) {
+        alert.className = 'alert err'
+        alert.textContent = '源语言与目标语言相同，请调整后再翻译。'
+        return
+      }
       btn.disabled = true
       clear(out); out.textContent = '翻译中…'
       alert.textContent = ''
       try {
         await callChat({
-          messages: buildMessages(text, langSelect.value),
+          messages: buildMessages(text, srcSelect.value, tgtSelect.value),
           stream: true,
           onToken: (d) => { out.textContent += d }
         })
@@ -72,8 +80,9 @@ export const translatePlugin = {
       el('p', { class: 'sub' }, ['示范「AI 网关 + 技能包」模式 · 当前模型：' + provName]),
       el('div', { class: 'card' }, [
         el('div', { class: 'field' }, [el('label', {}, ['原文']), input]),
-        el('div', { class: 'field' }, [
-          el('label', {}, ['目标语言']), langSelect
+        el('div', { class: 'row' }, [
+          el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['源语言']), srcSelect]),
+          el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['目标语言']), tgtSelect])
         ]),
         btn, alert
       ]),
