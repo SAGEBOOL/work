@@ -39,13 +39,13 @@ export const settingsPlugin = {
     }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name])))
     provSelect.value = s.defaultProvider
 
-    // 默认模型区域（云厂商用下拉，Ollama 用文本输入）
+    // 默认模型区域（云厂商用下拉+自定义，Ollama 用文本输入）
     const modelWrap = el('div', { class: 'model-wrap' })
     const renderModelField = (pid) => {
       clear(modelWrap)
       const p = PROVIDERS[pid]
       if (p.isLocal) {
-        const cfg = s.providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
+        const cfg = getSettings().providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
         const input = el('input', {
           type: 'text',
           value: cfg.model,
@@ -60,15 +60,34 @@ export const settingsPlugin = {
         })
         modelWrap.append(input)
       } else {
-        const sel = el('select', {
-          onchange: (e) => { update((st) => { st.settings.defaultModel = e.target.value }); markSaved() }
-        }, p.models.map((m) => el('option', { value: m }, [m])))
-        const current = s.defaultModel
-        sel.value = p.models.includes(current) ? current : p.models[0]
-        if (!p.models.includes(current)) {
+        const cur = getSettings().defaultModel
+        const isCustom = !!cur && !p.models.includes(cur)
+        if (!isCustom && (!cur || !p.models.includes(cur))) {
           update((st) => { st.settings.defaultModel = p.models[0] })
         }
+        const customBox = el('div', { style: 'margin-top:8px' })
+        const showCustom = () => {
+          const input = el('input', {
+            type: 'text',
+            value: isCustom ? cur : '',
+            placeholder: '输入自定义模型名，如 glm-4-long、deepseek-reasoner',
+            oninput: (e) => { update((st) => { st.settings.defaultModel = e.target.value.trim() }); markSaved() }
+          })
+          customBox.append(input)
+        }
+        const sel = el('select', {
+          onchange: (e) => {
+            clear(customBox)
+            if (e.target.value === '__custom__') showCustom()
+            else { update((st) => { st.settings.defaultModel = e.target.value }); markSaved() }
+          }
+        }, [
+          ...p.models.map((m) => el('option', { value: m }, [m])),
+          el('option', { value: '__custom__' }, ['＋ 自定义模型…'])
+        ])
+        sel.value = isCustom ? '__custom__' : (cur && p.models.includes(cur) ? cur : p.models[0])
         modelWrap.append(sel)
+        if (isCustom) showCustom()
       }
     }
 
