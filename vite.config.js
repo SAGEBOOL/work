@@ -4,8 +4,5 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: './',
   server: { host: true, port: 5173 },
-  // ffmpeg.wasm 内部用 Worker + import.meta.url，需排除预打包并保留 ES worker
-  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
-  worker: { format: 'es' },
   build: { outDir: 'dist', emptyOutDir: true }
 })
