@@ -7,32 +7,51 @@ export const PROVIDERS = {
     id: 'deepseek', name: 'DeepSeek',
     base: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-reasoner'],
-    doc: 'https://platform.deepseek.com/api_keys'
+    doc: 'https://platform.deepseek.com/api_keys',
+    browserOk: true
   },
   openai: {
     id: 'openai', name: 'OpenAI',
     base: 'https://api.openai.com/v1',
     models: ['gpt-4o', 'gpt-4o-mini', 'o3-mini'],
-    doc: 'https://platform.openai.com/api-keys'
+    doc: 'https://platform.openai.com/api-keys',
+    // OpenAI 默认禁止浏览器直连（CORS），纯前端架构下通常无法调用
+    browserOk: false
   },
   zhipu: {
     id: 'zhipu', name: '智谱 GLM',
     base: 'https://open.bigmodel.cn/api/paas/v4',
     models: ['glm-4-plus', 'glm-4-air', 'glm-4-flash'],
-    doc: 'https://open.bigmodel.cn/usercenter/apikeys'
+    doc: 'https://open.bigmodel.cn/usercenter/apikeys',
+    browserOk: true
   },
   qwen: {
     id: 'qwen', name: '通义千问',
     base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     models: ['qwen-plus', 'qwen-max', 'qwen-turbo'],
-    doc: 'https://dashscope.console.aliyun.com/api-key'
+    doc: 'https://dashscope.console.aliyun.com/api-key',
+    browserOk: true
   },
   moonshot: {
     id: 'moonshot', name: 'Kimi',
     base: 'https://api.moonshot.cn/v1',
     models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    doc: 'https://platform.moonshot.cn/console/api-keys'
+    doc: 'https://platform.moonshot.cn/console/api-keys',
+    browserOk: true
+  },
+  openrouter: {
+    id: 'openrouter', name: 'OpenRouter',
+    base: 'https://openrouter.ai/api/v1',
+    models: ['deepseek/deepseek-chat', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.1-70b-instruct'],
+    doc: 'https://openrouter.ai/keys',
+    // 显式支持浏览器跨域，纯前端架构最稳
+    browserOk: true
   }
+}
+
+// 浏览器可直连（CORS 放行）的厂商，给用户明确提示
+export function browserCallableProviders() {
+  return providerList().filter((p) => p.browserOk)
 }
 
 export function providerList() {
@@ -64,15 +83,36 @@ export async function callChat(opts = {}) {
     stream: !!opts.onToken
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-    body: JSON.stringify(body)
-  })
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: JSON.stringify(body)
+    })
+  } catch (netErr) {
+    // 浏览器直连常见两类失败：CORS 拦截 或 网络不可达
+    const host = (() => { try { return new URL(p.base).host } catch { return p.base } })()
+    let reason
+    if (providerId === 'openai') {
+      reason = 'OpenAI 默认禁止浏览器直连（CORS 拦截）。请改用 DeepSeek / 智谱 / 通义 / Kimi / OpenRouter 等支持浏览器调用的厂商。'
+    } else if (!p.browserOk) {
+      reason = p.name + ' 不支持浏览器直连，请换用支持浏览器调用的厂商（见设置页提示）。'
+    } else {
+      reason = '浏览器无法连接 ' + p.name + '（网络不可达或被 CORS 拦截）。国内访问 ' + host + ' 可能超时，可在能直连的网络下使用，或改用 OpenRouter。'
+    }
+    throw new Error('✗ 网络/CORS 错误：' + reason)
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
-    throw new Error(p.name + ' 调用失败 (' + res.status + ')：' + errText.slice(0, 240))
+    let hint = ''
+    if (res.status === 401) hint = '（401：API Key 无效或未授权，请检查密钥）'
+    else if (res.status === 403) hint = '（403：无权限，请确认密钥状态）'
+    else if (res.status === 429) hint = '（429：额度用尽或触发限流）'
+    else if (res.status === 404) hint = '（404：模型名或接口地址不正确）'
+    else if (res.status >= 500) hint = '（5xx：厂商服务端异常，稍后重试）'
+    throw new Error(p.name + ' 调用失败 (' + res.status + ')：' + errText.slice(0, 200) + ' ' + hint)
   }
 
   if (opts.onToken) {
