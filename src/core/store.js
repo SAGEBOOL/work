@@ -41,7 +41,7 @@ function load() {
       settings: {
         ...clone(defaultState.settings),
         ...(p.settings || {}),
-        apiKeys: { ...(p.settings?.apiKeys || {}) },
+        apiKeys: { ...(p.apiKeys || {}), ...(p.settings?.apiKeys || {}) },
         providerConfig: { ...clone(defaultState.settings.providerConfig), ...(p.settings?.providerConfig || {}) },
         dataSources: { ...clone(defaultState.settings.dataSources), ...(p.settings?.dataSources || {}) },
         industry: Array.isArray(p.settings?.industry) ? p.settings.industry : clone(defaultState.settings.industry)
