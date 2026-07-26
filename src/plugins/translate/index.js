@@ -62,7 +62,11 @@ export const translatePlugin = {
       }
     }
 
-    const provName = PROVIDERS[s.defaultProvider]?.name || s.defaultProvider
+    const prov = PROVIDERS[s.defaultProvider]
+    const modelName = prov?.isLocal
+      ? (s.providerConfig?.ollama?.model || '本地模型')
+      : (s.defaultModel || s.defaultProvider)
+    const provName = (prov?.name || s.defaultProvider) + ' · ' + modelName
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['AI 翻译']),
       el('p', { class: 'sub' }, ['示范「AI 网关 + 技能包」模式 · 当前模型：' + provName]),
