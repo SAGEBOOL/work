@@ -103,7 +103,7 @@ export const settingsPlugin = {
           type: 'password',
           placeholder: '粘贴 ' + p.name + ' 的 API Key',
           value: s.apiKeys[pid] || '',
-          oninput: (e) => { update((st) => { st.apiKeys[pid] = e.target.value.trim() }); markSaved() }
+          oninput: (e) => { update((st) => { st.settings.apiKeys[pid] = e.target.value.trim() }); markSaved() }
         })
         const link = el('a', { class: 'hint', href: p.doc, target: '_blank', rel: 'noreferrer' }, ['获取密钥 ↗'])
         const hint = el('span', { class: 'prov-hint ' + (p.browserOk ? 'ok' : 'no') },
