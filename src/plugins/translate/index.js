@@ -18,7 +18,8 @@ export const translatePlugin = {
     const input = el('textarea', { placeholder: '输入要翻译的文本…' })
     const srcSelect = el('select', {}, SOURCES.map((l) => el('option', { value: l }, [l])))
     const tgtSelect = el('select', {}, TARGETS.map((l) => el('option', { value: l }, [l])))
-    const out = el('div', { class: 'card', style: 'min-height:120px;white-space:pre-wrap' }, ['译文将显示在这里…'])
+    const out = el('div', { class: 'trans-output', style: 'min-height:120px;white-space:pre-wrap' }, ['译文将显示在这里…'])
+    const copyBtn = el('button', { class: 'mini copy-btn', title: '拷贝译文' }, ['拷贝'])
     const btn = el('button', { class: 'btn' }, ['翻译'])
     const alert = el('div', {})
 
@@ -51,22 +52,42 @@ export const translatePlugin = {
         return
       }
       btn.disabled = true
+      copyBtn.disabled = true
       clear(out); out.textContent = '翻译中…'
       alert.textContent = ''
+      let started = false
       try {
         await callChat({
           messages: buildMessages(text, srcSelect.value, tgtSelect.value),
           stream: true,
-          onToken: (d) => { out.textContent += d }
+          onToken: (d) => {
+            if (!started) { started = true; clear(out) }
+            out.textContent += d
+          }
         })
+        copyBtn.disabled = false
         toast('翻译完成', 'ok')
       } catch (err) {
         clear(out); out.textContent = '译文将显示在这里…'
+        copyBtn.disabled = true
         alert.className = 'alert err'
         alert.textContent = '✗ ' + err.message
         toast('翻译失败：' + err.message, 'err')
       } finally {
         btn.disabled = false
+      }
+    }
+
+    copyBtn.onclick = async () => {
+      const text = out.textContent.trim()
+      if (!text || text === '译文将显示在这里…' || text === '翻译中…') {
+        toast('没有可拷贝的译文', 'err'); return
+      }
+      try {
+        await navigator.clipboard.writeText(text)
+        toast('译文已拷贝', 'ok')
+      } catch {
+        toast('拷贝失败，请手动复制', 'err')
       }
     }
 
@@ -87,7 +108,8 @@ export const translatePlugin = {
         btn, alert
       ]),
       el('div', { class: 'card', style: 'margin-top:16px' }, [
-        el('label', {}, ['译文']), out
+        el('div', { class: 'trans-header' }, [el('label', {}, ['译文']), copyBtn]),
+        out
       ])
     ])
     root.append(page)
