@@ -2,7 +2,7 @@
 import './styles/base.css'
 import { el, applyTheme } from './core/ui.js'
 import { getSettings, subscribe } from './core/store.js'
-import { initRouter } from './core/router.js'
+import { initRouter, navigate } from './core/router.js'
 import { registerPlugin } from './core/pluginManager.js'
 import { renderSidebar } from './components/sidebar.js'
 import { renderTopbar } from './components/topbar.js'
