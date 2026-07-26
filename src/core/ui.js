@@ -23,3 +23,21 @@ export function clear(node) {
 export function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light')
 }
+
+// 轻量 Toast 提示
+let toastTimer = null
+export function toast(msg, type = 'ok') {
+  let t = document.getElementById('wb-toast')
+  if (!t) {
+    t = document.createElement('div')
+    t.id = 'wb-toast'
+    document.body.appendChild(t)
+  }
+  t.className = 'toast ' + (type || 'ok')
+  t.textContent = msg
+  // 强制重排以触发过渡
+  void t.offsetWidth
+  t.classList.add('show')
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800)
+}
