@@ -1,6 +1,6 @@
 // 翻译：示范 AI 网关 + 技能包(skill pack) 模式。
 // 提示词根据设置中心的「行业标签 / 数据源」自动调整，体现解耦与复用。
-import { el, clear } from '../../core/ui.js'
+import { el, clear, toast } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
 import { callChat, PROVIDERS } from '../../core/aiGateway.js'
 
@@ -35,7 +35,9 @@ export const translatePlugin = {
     btn.onclick = async () => {
       const text = input.value.trim()
       if (!text) { alert.className = 'alert err'; alert.textContent = '请先输入文本'; return }
-      if (!s.apiKeys[s.defaultProvider]) {
+      // 始终读取最新设置，避免设置页改动后本页快照过期
+      const st = getSettings()
+      if (!st.apiKeys[st.defaultProvider]) {
         alert.className = 'alert err'
         alert.textContent = '未配置默认 AI Key，请到「设置」填写后重试。'
         return
@@ -49,10 +51,12 @@ export const translatePlugin = {
           stream: true,
           onToken: (d) => { out.textContent += d }
         })
+        toast('翻译完成', 'ok')
       } catch (err) {
         clear(out); out.textContent = '译文将显示在这里…'
         alert.className = 'alert err'
         alert.textContent = '✗ ' + err.message
+        toast('翻译失败：' + err.message, 'err')
       } finally {
         btn.disabled = false
       }
