@@ -23,24 +23,101 @@ export const settingsPlugin = {
       el('p', { class: 'sub' }, ['API 密钥仅保存在本机浏览器，请求直接从浏览器发往对应厂商。换设备需重新填写。'])
     ])
 
-    // ---------- 1. API Key ----------
-    const keyFields = Object.values(PROVIDERS).map((p) => {
-      const input = el('input', {
-        type: 'password', placeholder: '粘贴 ' + p.name + ' 的 API Key',
-        value: s.apiKeys[p.id] || '',
-        oninput: (e) => { update((st) => { st.apiKeys[p.id] = e.target.value.trim() }); markSaved() }
-      })
-      const link = el('a', { class: 'hint', href: p.doc, target: '_blank', rel: 'noreferrer' }, ['获取密钥 ↗'])
-      const hint = el('span', { class: 'prov-hint ' + (p.browserOk ? 'ok' : 'no') },
-        [p.browserOk ? '✓ 浏览器可直接调用' : '✗ 浏览器直连被 CORS 拦截（建议换其他厂商）'])
-      return el('div', { class: 'field' }, [
-        el('label', {}, [p.name + ' (' + p.id + ')']),
-        el('div', { class: 'row' }, [input, hint]),
-        link
-      ])
-    })
+    // ---------- 1. AI 供应商配置 ----------
+    const providerArea = el('div', { class: 'provider-area' })
 
-    const testBtn = el('button', { class: 'btn ghost' }, ['测试默认模型连通性'])
+    // 默认供应商下拉框
+    const provSelect = el('select', {
+      onchange: (e) => {
+        const pid = e.target.value
+        update((st) => { st.settings.defaultProvider = pid })
+        // 刷新该供应商的配置表单与模型选项
+        renderProviderArea(pid)
+        renderModelField(pid)
+        markSaved()
+      }
+    }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name])))
+    provSelect.value = s.defaultProvider
+
+    // 默认模型区域（云厂商用下拉，Ollama 用文本输入）
+    const modelWrap = el('div', { class: 'model-wrap' })
+    const renderModelField = (pid) => {
+      clear(modelWrap)
+      const p = PROVIDERS[pid]
+      if (p.isLocal) {
+        const cfg = s.providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
+        const input = el('input', {
+          type: 'text',
+          value: cfg.model,
+          placeholder: '如 llama3.1、qwen2.5',
+          oninput: (e) => {
+            update((st) => {
+              st.settings.providerConfig = st.settings.providerConfig || {}
+              st.settings.providerConfig.ollama = { ...st.settings.providerConfig.ollama, model: e.target.value.trim() }
+            })
+            markSaved()
+          }
+        })
+        modelWrap.append(input)
+      } else {
+        const sel = el('select', {
+          onchange: (e) => { update((st) => { st.settings.defaultModel = e.target.value }); markSaved() }
+        }, p.models.map((m) => el('option', { value: m }, [m])))
+        const current = s.defaultModel
+        sel.value = p.models.includes(current) ? current : p.models[0]
+        if (!p.models.includes(current)) {
+          update((st) => { st.settings.defaultModel = p.models[0] })
+        }
+        modelWrap.append(sel)
+      }
+    }
+
+    // 供应商配置表单：云厂商显示 Key，Ollama 显示本地地址+模型
+    const renderProviderArea = (pid) => {
+      clear(providerArea)
+      const p = PROVIDERS[pid]
+      if (p.isLocal) {
+        const cfg = s.providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
+        const baseInput = el('input', {
+          type: 'text',
+          value: cfg.baseUrl,
+          placeholder: 'http://localhost:11434',
+          oninput: (e) => {
+            update((st) => {
+              st.settings.providerConfig = st.settings.providerConfig || {}
+              st.settings.providerConfig.ollama = { ...st.settings.providerConfig.ollama, baseUrl: e.target.value.trim() }
+            })
+            markSaved()
+          }
+        })
+        const hint = el('p', { class: 'hint' }, [
+          '浏览器访问本地 Ollama 需以 CORS 方式启动：',
+          el('code', {}, ['OLLAMA_ORIGINS="*" ollama serve'])
+        ])
+        providerArea.append(
+          el('div', { class: 'field' }, [el('label', {}, ['本地服务地址']), baseInput]),
+          hint
+        )
+      } else {
+        const input = el('input', {
+          type: 'password',
+          placeholder: '粘贴 ' + p.name + ' 的 API Key',
+          value: s.apiKeys[pid] || '',
+          oninput: (e) => { update((st) => { st.apiKeys[pid] = e.target.value.trim() }); markSaved() }
+        })
+        const link = el('a', { class: 'hint', href: p.doc, target: '_blank', rel: 'noreferrer' }, ['获取密钥 ↗'])
+        const hint = el('span', { class: 'prov-hint ' + (p.browserOk ? 'ok' : 'no') },
+          [p.browserOk ? '✓ 浏览器可直接调用' : '✗ 浏览器直连被 CORS 拦截（建议换其他厂商）'])
+        providerArea.append(
+          el('div', { class: 'field' }, [el('label', {}, [p.name + ' API Key'])]),
+          el('div', { class: 'row' }, [input, hint]),
+          link
+        )
+      }
+    }
+
+    // 测试当前默认供应商
+    const testBtn = el('button', { class: 'btn ghost' }, ['测试当前供应商连通性'])
     const testAlert = el('div', {})
     testBtn.onclick = async () => {
       testBtn.disabled = true
@@ -60,36 +137,16 @@ export const settingsPlugin = {
       }
     }
 
+    // 初始渲染
+    renderProviderArea(s.defaultProvider)
+    renderModelField(s.defaultProvider)
+
     const apiCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['AI 供应商 API Key']),
-      ...keyFields,
-      testBtn, testAlert
-    ])
-
-    // ---------- 2. 默认模型 ----------
-    const provSelect = el('select', {
-      onchange: (e) => {
-        update((st) => { st.settings.defaultProvider = e.target.value })
-        // 模型选项随之刷新
-        const models = PROVIDERS[e.target.value].models
-        modelSelect.innerHTML = ''
-        models.forEach((m) => modelSelect.append(el('option', { value: m }, [m])))
-        modelSelect.value = models[0]
-        update((st) => { st.settings.defaultModel = models[0] })
-        markSaved()
-      }
-    }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name])))
-    provSelect.value = s.defaultProvider
-
-    const modelSelect = el('select', {
-      onchange: (e) => { update((st) => { st.settings.defaultModel = e.target.value }); markSaved() }
-    }, PROVIDERS[s.defaultProvider].models.map((m) => el('option', { value: m }, [m])))
-    modelSelect.value = s.defaultModel
-
-    const modelCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['默认模型']),
-      el('div', { class: 'field' }, [el('label', {}, ['默认供应商']), provSelect]),
-      el('div', { class: 'field' }, [el('label', {}, ['默认模型']), modelSelect]),
+      el('h3', {}, ['AI 供应商配置']),
+      el('div', { class: 'field' }, [el('label', {}, ['默认 AI 供应商']), provSelect]),
+      providerArea,
+      el('div', { class: 'field' }, [el('label', {}, ['默认模型']), modelWrap]),
+      testBtn, testAlert,
       el('p', { class: 'hint' }, ['各插件可单独覆盖，不填则使用此处默认。'])
     ])
 
@@ -166,7 +223,7 @@ export const settingsPlugin = {
       el('div', { class: 'field' }, [el('label', {}, ['主题']), themeSelect])
     ])
 
-    page.append(el('div', { class: 'grid cols-2' }, [apiCard, modelCard]))
+    page.append(apiCard)
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
     page.append(themeCard)
 
