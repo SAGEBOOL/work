@@ -10,12 +10,18 @@ import { renderTopbar } from './components/topbar.js'
 import { overviewPlugin } from './plugins/overview/index.js'
 import { pomodoroPlugin } from './plugins/pomodoro/index.js'
 import { translatePlugin } from './plugins/translate/index.js'
+import { pdfToolsPlugin } from './plugins/pdf-tools/index.js'
+import { imageWatermarkPlugin } from './plugins/image-watermark/index.js'
+import { fileOrganizerPlugin } from './plugins/file-organizer/index.js'
 import { settingsPlugin } from './settings/settingsPlugin.js'
 
 // 1) 注册所有插件（新增功能只改这一处 + 加一个插件文件）
 registerPlugin(overviewPlugin)
 registerPlugin(pomodoroPlugin)
 registerPlugin(translatePlugin)
+registerPlugin(pdfToolsPlugin)
+registerPlugin(imageWatermarkPlugin)
+registerPlugin(fileOrganizerPlugin)
 registerPlugin(settingsPlugin)
 
 // 2) 组装外壳
