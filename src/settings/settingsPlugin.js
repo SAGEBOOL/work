@@ -1,6 +1,6 @@
 // 设置中心：所有插件的公共底座。
 // 负责 API Key、默认模型、行业标签、数据源、主题，并持久化到 localStorage。
-import { el, clear } from '../core/ui.js'
+import { el, clear, toast } from '../core/ui.js'
 import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS } from '../core/store.js'
 import { PROVIDERS, callChat } from '../core/aiGateway.js'
 
@@ -12,6 +12,12 @@ export const settingsPlugin = {
   mount(root) {
     const s = getSettings()
 
+    // 保存状态提示（定义在前，供各处理器调用；运行时 saveStatus 已初始化）
+    const markSaved = () => {
+      saveStatus.className = 'save-status ok'
+      saveStatus.textContent = '✓ 已保存 ' + new Date().toLocaleTimeString()
+    }
+
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['设置中心']),
       el('p', { class: 'sub' }, ['API 密钥仅保存在本机浏览器，请求直接从浏览器发往对应厂商。换设备需重新填写。'])
@@ -22,12 +28,15 @@ export const settingsPlugin = {
       const input = el('input', {
         type: 'password', placeholder: '粘贴 ' + p.name + ' 的 API Key',
         value: s.apiKeys[p.id] || '',
-        oninput: (e) => update((st) => { st.apiKeys[p.id] = e.target.value.trim() })
+        oninput: (e) => { update((st) => { st.apiKeys[p.id] = e.target.value.trim() }); markSaved() }
       })
       const link = el('a', { class: 'hint', href: p.doc, target: '_blank', rel: 'noreferrer' }, ['获取密钥 ↗'])
+      const hint = el('span', { class: 'prov-hint ' + (p.browserOk ? 'ok' : 'no') },
+        [p.browserOk ? '✓ 浏览器可直接调用' : '✗ 浏览器直连被 CORS 拦截（建议换其他厂商）'])
       return el('div', { class: 'field' }, [
         el('label', {}, [p.name + ' (' + p.id + ')']),
-        input, link
+        el('div', { class: 'row' }, [input, hint]),
+        link
       ])
     })
 
@@ -41,9 +50,11 @@ export const settingsPlugin = {
         const r = await callChat({ messages: [{ role: 'user', content: '回复两个字：正常' }], stream: false })
         testAlert.className = 'alert ok'
         testAlert.textContent = '✓ 连通成功：' + (r || '').slice(0, 40)
+        toast('连通测试成功', 'ok')
       } catch (err) {
         testAlert.className = 'alert err'
         testAlert.textContent = '✗ ' + err.message
+        toast('连通失败：' + err.message, 'err')
       } finally {
         testBtn.disabled = false
       }
@@ -65,12 +76,13 @@ export const settingsPlugin = {
         models.forEach((m) => modelSelect.append(el('option', { value: m }, [m])))
         modelSelect.value = models[0]
         update((st) => { st.settings.defaultModel = models[0] })
+        markSaved()
       }
     }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name])))
     provSelect.value = s.defaultProvider
 
     const modelSelect = el('select', {
-      onchange: (e) => update((st) => { st.settings.defaultModel = e.target.value })
+      onchange: (e) => { update((st) => { st.settings.defaultModel = e.target.value }); markSaved() }
     }, PROVIDERS[s.defaultProvider].models.map((m) => el('option', { value: m }, [m])))
     modelSelect.value = s.defaultModel
 
@@ -97,6 +109,7 @@ export const settingsPlugin = {
               else st.settings.industry.push(tag)
             })
             syncChips()
+            markSaved()
           }
         }, [tag]))
       })
@@ -110,6 +123,7 @@ export const settingsPlugin = {
         update((st) => { if (!st.settings.industry.includes(v)) st.settings.industry.push(v) })
         e.target.value = ''
         syncChips()
+        markSaved()
       }
     })
 
@@ -125,7 +139,7 @@ export const settingsPlugin = {
     DATA_SOURCE_PRESETS.forEach((d) => {
       const toggle = el('input', {
         type: 'checkbox',
-        onchange: (e) => update((st) => { st.settings.dataSources[d.id] = e.target.checked })
+        onchange: (e) => { update((st) => { st.settings.dataSources[d.id] = e.target.checked }); markSaved() }
       })
       toggle.checked = !!s.dataSources[d.id]
       srcWrap.append(el('label', { class: 'switch' }, [
@@ -141,7 +155,7 @@ export const settingsPlugin = {
 
     // ---------- 5. 主题 ----------
     const themeSelect = el('select', {
-      onchange: (e) => update((st) => { st.settings.theme = e.target.value })
+      onchange: (e) => { update((st) => { st.settings.theme = e.target.value }); markSaved() }
     }, [
       el('option', { value: 'light' }, ['浅色']),
       el('option', { value: 'dark' }, ['深色'])
@@ -156,6 +170,18 @@ export const settingsPlugin = {
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
     page.append(themeCard)
 
+    // ---------- 保存栏 ----------
+    const saveStatus = el('span', { class: 'save-status' }, ['● 修改自动保存已开启'])
+    const saveBtn = el('button', { class: 'btn primary' }, ['💾 保存设置'])
+    // 任何设置变更都更新状态提示（行业/数据源/主题等）
+    saveBtn.onclick = () => {
+      update((st) => { /* 强制把当前内存状态写入 localStorage */ })
+      markSaved()
+      toast('设置已保存', 'ok')
+    }
+    const saveBar = el('div', { class: 'save-bar' }, [saveBtn, saveStatus])
+
     root.append(page)
+    root.append(saveBar)
   }
 }
