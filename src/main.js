@@ -14,6 +14,10 @@ import { pdfToolsPlugin } from './plugins/pdf-tools/index.js'
 import { imageWatermarkPlugin } from './plugins/image-watermark/index.js'
 import { videoWatermarkPlugin } from './plugins/video-watermark/index.js'
 import { fileOrganizerPlugin } from './plugins/file-organizer/index.js'
+import { industryAnalysisPlugin } from './plugins/industry-analysis/index.js'
+import { docOrganizerPlugin } from './plugins/doc-organizer/index.js'
+import { crmPlugin } from './plugins/crm/index.js'
+import { bizAnalysisPlugin } from './plugins/biz-analysis/index.js'
 import { leisurePlugin } from './plugins/leisure/index.js'
 import { settingsPlugin } from './settings/settingsPlugin.js'
 
@@ -25,6 +29,10 @@ registerPlugin(pdfToolsPlugin)
 registerPlugin(imageWatermarkPlugin)
 registerPlugin(videoWatermarkPlugin)
 registerPlugin(fileOrganizerPlugin)
+registerPlugin(industryAnalysisPlugin)
+registerPlugin(docOrganizerPlugin)
+registerPlugin(crmPlugin)
+registerPlugin(bizAnalysisPlugin)
 registerPlugin(leisurePlugin)
 registerPlugin(settingsPlugin)
 
