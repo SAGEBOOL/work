@@ -208,3 +208,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.ok { background: var(--ok); color: #fff; }
 .toast.err { background: var(--off); color: #fff; }
+
+/* ---------- 供应商配置区 ---------- */
+.provider-area { margin-top: 10px; padding: 12px; background: var(--bg); border-radius: var(--radius); border: 1px solid var(--border); }
+.provider-area .field { margin-top: 0; }
+.provider-area code { background: var(--panel); padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+.model-wrap { margin-top: 6px; }
+.model-wrap input, .model-wrap select { width: 100%; }
