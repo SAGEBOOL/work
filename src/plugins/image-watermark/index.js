@@ -1,5 +1,5 @@
-// 图片去水印：上传图 → 画笔遮盖水印区域 → 内容识别修复(inpaint) 或 快速模糊遮挡 → 下载。
-// OpenCV.js 随站点一起部署（约 10MB），懒加载 + 进度条，进入页面即后台预加载，不阻塞首屏。全程本机，不上传。
+// 图片去水印：上传图 → 画笔遮盖水印区域 → 内容感知修复(Fast Marching) 或 快速模糊 → 下载。
+// 纯前端实现，无需下载任何外部引擎（OpenCV.js 10MB 在北京到 GitHub Pages 网络下不可达），全程本机处理。
 import { el, clear } from '../../core/ui.js'
 
 export const imageWatermarkPlugin = {
@@ -9,7 +9,6 @@ export const imageWatermarkPlugin = {
   group: '基础办公',
   mount(root) {
     let original = null      // 原始 Image
-    let cvReady = false
 
     const fileInput = el('input', { type: 'file', accept: 'image/*', style: 'display:none' })
     const drop = el('div', { class: 'dropzone' }, ['拖入图片，或点击选择（JPG/PNG/WebP）'])
@@ -25,13 +24,7 @@ export const imageWatermarkPlugin = {
     const runBtn = el('button', { class: 'btn' }, ['去除水印'])
     const dlBtn = el('button', { class: 'btn ghost' }, ['下载结果'])
     const alert = el('div', {})
-
-    // 引擎加载进度条
-    const cvFill = el('div', { class: 'cv-fill' })
-    const cvBar = el('div', { class: 'cv-bar' }, [ cvFill ])
-    const cvPct = el('div', { class: 'cv-pct muted' }, ['首次使用「去除水印」需下载约 10MB 修复引擎（之后浏览器缓存）'])
-    const cvProgress = el('div', { class: 'cv-progress' }, [ cvBar, cvPct ])
-    const modeHint = el('p', { class: 'hint' }, ['「快速模糊」无需下载引擎，直接高斯模糊水印区域，适合角标/小字；「去除水印」下载 AI 引擎后内容识别填充，效果更自然。'])
+    const modeHint = el('p', { class: 'hint' }, ['「去除水印」：内容感知填充（从边缘向内扩散，效果自然）；「快速模糊」：直接高斯模糊水印区，适合角标/小字。两者均本机处理，无需下载引擎。'])
 
     const vctx = view.getContext('2d')
     const mctx = mask.getContext('2d')
@@ -91,7 +84,7 @@ export const imageWatermarkPlugin = {
       return false
     }
 
-    // 快速模糊：不依赖 OpenCV，秒处理，按 mask 区域把原图对应像素替换为模糊后的像素
+    // 快速模糊：不依赖任何引擎，按 mask 区域把原图对应像素替换为高斯模糊后的像素
     blurBtn.onclick = () => {
       if (!view.width) { alert.className = 'alert err'; alert.textContent = '请先上传图片'; return }
       if (!checkHasMask()) { alert.className = 'alert err'; alert.textContent = '请先用画笔在水印上涂抹'; return }
@@ -121,97 +114,79 @@ export const imageWatermarkPlugin = {
       }
     }
 
-    // 懒加载 OpenCV 引擎：fetch 流式下载 + 进度条；进入页面即后台预加载，不阻塞交互
-    let cvPromise = null
-    let slowHintTimer = null
-    const ensureOpenCV = () => {
-      if (window.cv && window.cv.getVersion) return Promise.resolve(window.cv)
-      if (cvPromise) return cvPromise
-      cvPromise = new Promise((resolve, reject) => {
-        slowHintTimer = setTimeout(() => {
-          cvPct.textContent = '引擎较大（约 10MB），当前网络较慢，请继续等待…'
-        }, 15000)
-        fetch('./opencv.js').then((resp) => {
-          if (!resp.ok) throw new Error('引擎下载失败（HTTP ' + resp.status + '）')
-          const total = +resp.headers.get('content-length') || 0
-          if (!total) { cvFill.classList.add('indeterminate'); cvPct.textContent = '引擎加载中…' }
-          const reader = resp.body.getReader()
-          const chunks = []
-          let received = 0
-          const pump = () => reader.read().then(({ done, value }) => {
-            if (done) {
-              clearTimeout(slowHintTimer)
-              const blob = new Blob(chunks, { type: 'application/javascript' })
-              const url = URL.createObjectURL(blob)
-              const s = document.createElement('script')
-              s.src = url
-              s.onload = () => {
-                let tries = 0
-                const wait = () => {
-                  if (window.cv && window.cv.getVersion) {
-                    URL.revokeObjectURL(url)
-                    cvFill.style.width = '100%'
-                    cvPct.textContent = '✓ 修复引擎已就绪'
-                    cvProgress.classList.add('ready')
-                    cvReady = true
-                    return resolve(window.cv)
-                  }
-                  if (++tries > 200) return reject(new Error('OpenCV 初始化超时，请刷新页面重试'))
-                  setTimeout(wait, 100)
-                }
-                wait()
-              }
-              s.onerror = () => reject(new Error('引擎执行失败，请刷新页面重试'))
-              document.head.append(s)
-              return
-            }
-            chunks.push(value)
-            received += value.length
-            if (total) {
-              const ratio = Math.min(received / total, 1)
-              const pct = Math.round(ratio * 100)
-              cvFill.style.width = pct + '%'
-              cvPct.textContent = '引擎加载中 ' + pct + '%'
-            }
-            pump()
-          })
-          pump()
-        }).catch((err) => { clearTimeout(slowHintTimer); throw err })
-      }).catch((err) => { cvPromise = null; throw err })  // 失败可重试：重置后下次重新加载
-      return cvPromise
-    }
-    // 进入页面即后台预加载（不阻塞），提前拿到引擎
-    ensureOpenCV().catch(() => { cvPct.textContent = '引擎加载失败，点击「去除水印」时自动重试'; cvProgress.classList.add('err') })
-
-    runBtn.onclick = async () => {
+    // 内容感知修复：快速行进(Fast Marching)近似——从水印边界向内逐层用已知邻域均值填充。
+    // 纯 JS，零下载，复杂度 O(水印像素)，处理秒级。适合文字/logo 等常见水印。
+    const runInpaint = () => {
       if (!view.width) { alert.className = 'alert err'; alert.textContent = '请先上传图片'; return }
       if (!checkHasMask()) { alert.className = 'alert err'; alert.textContent = '请先用画笔在水印上涂抹'; return }
-      runBtn.disabled = true; alert.className = ''; alert.textContent = '正在准备修复引擎…'
-      try {
-        const cv = await ensureOpenCV()
-        alert.textContent = '修复中…'
-        const src = cv.imread(view)
-        const rgba = cv.imread(mask)
-        const chans = new cv.MatVector(); cv.split(rgba, chans)
-        const a = chans.get(3)
-        cv.threshold(a, a, 10, 255, cv.THRESH_BINARY)
-        const dst = new cv.Mat()
-        cv.inpaint(src, a, dst, 3, cv.INPAINT_TELEA)
-        cv.imshow(view, dst)
-        mctx.clearRect(0, 0, mask.width, mask.height)
-        src.delete(); rgba.delete(); chans.delete(); a.delete(); dst.delete()
-        alert.className = 'alert ok'; alert.textContent = '✓ 已修复，可继续涂抹叠加处理或下载'
-      } catch (err) {
-        alert.className = 'alert err'; alert.textContent = '✗ ' + err.message
-      } finally {
-        runBtn.disabled = false
-      }
+      runBtn.disabled = true; blurBtn.disabled = true; alert.className = ''; alert.textContent = '修复中…'
+      // 让「修复中…」先渲染，再同步计算
+      setTimeout(() => {
+        try {
+          const vw = view.width, vh = view.height
+          const vImg = vctx.getImageData(0, 0, vw, vh)
+          const mImg = mctx.getImageData(0, 0, vw, vh)
+          const data = vImg.data
+          const N = vw * vh
+          const known = new Uint8Array(N)
+          const knownCount = new Int32Array(N)
+          for (let i = 0; i < N; i++) known[i] = (mImg.data[i * 4 + 3] > 10) ? 0 : 1
+          const buf = new Float32Array(N * 3)
+          for (let i = 0; i < N; i++) { buf[i * 3] = data[i * 4]; buf[i * 3 + 1] = data[i * 4 + 1]; buf[i * 3 + 2] = data[i * 4 + 2] }
+          const NB = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [1, -1], [1, 1]]
+          const queue = []
+          for (let y = 0; y < vh; y++) {
+            for (let x = 0; x < vw; x++) {
+              const i = y * vw + x
+              if (known[i]) continue
+              let cnt = 0
+              for (const [dx, dy] of NB) {
+                const nx = x + dx, ny = y + dy
+                if (nx < 0 || ny < 0 || nx >= vw || ny >= vh) continue
+                if (known[ny * vw + nx]) cnt++
+              }
+              knownCount[i] = cnt
+              if (cnt > 0) queue.push(i)
+            }
+          }
+          let head = 0
+          while (head < queue.length) {
+            const i = queue[head++]
+            if (known[i]) continue
+            const x = i % vw, y = (i / vw) | 0
+            let cnt = 0, sr = 0, sg = 0, sb = 0
+            for (const [dx, dy] of NB) {
+              const nx = x + dx, ny = y + dy
+              if (nx < 0 || ny < 0 || nx >= vw || ny >= vh) continue
+              const ni = ny * vw + nx
+              if (known[ni]) { const v = ni * 3; sr += buf[v]; sg += buf[v + 1]; sb += buf[v + 2]; cnt++ }
+            }
+            if (cnt > 0) { const v = i * 3; buf[v] = sr / cnt; buf[v + 1] = sg / cnt; buf[v + 2] = sb / cnt }
+            known[i] = 1
+            for (const [dx, dy] of NB) {
+              const nx = x + dx, ny = y + dy
+              if (nx < 0 || ny < 0 || nx >= vw || ny >= vh) continue
+              const ni = ny * vw + nx
+              if (!known[ni]) { knownCount[ni]++; if (knownCount[ni] === 1) queue.push(ni) }
+            }
+          }
+          for (let i = 0; i < N; i++) { const v = i * 3; data[i * 4] = buf[v]; data[i * 4 + 1] = buf[v + 1]; data[i * 4 + 2] = buf[v + 2]; data[i * 4 + 3] = 255 }
+          vctx.putImageData(vImg, 0, 0)
+          mctx.clearRect(0, 0, mask.width, mask.height)
+          alert.className = 'alert ok'; alert.textContent = '✓ 已修复，可继续涂抹叠加处理或下载'
+        } catch (err) {
+          alert.className = 'alert err'; alert.textContent = '✗ ' + err.message
+        } finally {
+          runBtn.disabled = false; blurBtn.disabled = false
+        }
+      }, 10)
     }
+    runBtn.onclick = runInpaint
 
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['图片去水印']),
       el('p', { class: 'sub' }, ['画笔涂抹水印区域，内容识别算法自动填充 · 纯本机处理']),
-      el('div', { class: 'card' }, [drop, cvProgress, modeHint, stage]),
+      el('div', { class: 'card' }, [drop, modeHint, stage]),
       el('div', { class: 'card', style: 'margin-top:16px' }, [
         el('div', { class: 'row' }, [
           el('label', { class: 'muted' }, ['笔刷']), brush, brushVal,
