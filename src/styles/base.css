@@ -144,3 +144,49 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .pomo .time { font-size: 72px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .pomo .mode { color: var(--text-2); margin-bottom: 14px; }
 .pomo .ctr { display: flex; gap: 10px; justify-content: center; margin-top: 16px; }
+
+/* ---------- Plugins: 通用 ---------- */
+.row { display: flex; align-items: center; gap: 10px; }
+.row-ctrl { display: flex; gap: 4px; }
+.mini {
+  border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+  width: 26px; height: 26px; border-radius: 7px; cursor: pointer; font-size: 13px; line-height: 1;
+}
+.mini:hover { background: var(--panel-2); color: var(--text); }
+
+.dropzone {
+  border: 1.5px dashed var(--border); border-radius: var(--radius);
+  padding: 28px 16px; text-align: center; color: var(--text-2);
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
+
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.tab {
+  border: 1px solid var(--border); background: var(--panel); color: var(--text-2);
+  padding: 7px 14px; border-radius: 9px; cursor: pointer; font-size: 13px;
+}
+.tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+.filelist { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+.fileitem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-2);
+}
+.fileitem .idx { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px; background: var(--primary-soft); color: var(--primary); font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: 600; }
+.fileitem .fname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.grp { border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 10px; background: var(--panel); }
+.grp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.grp-name { font-weight: 600; }
+.grp-items { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- 图片去水印画布 ---------- */
+.stage {
+  position: relative; margin-top: 14px; display: inline-block;
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  max-width: 100%; background:
+    repeating-conic-gradient(#e9ebee 0% 25%, #fff 0% 50%) 50% / 22px 22px;
+}
+.stage .view, .stage .mask { display: block; max-width: 100%; }
+.stage .mask { position: absolute; left: 0; top: 0; cursor: crosshair; touch-action: none; }
