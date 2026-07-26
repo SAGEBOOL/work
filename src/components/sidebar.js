@@ -4,7 +4,7 @@ import { el, clear } from '../core/ui.js'
 import { pluginsByGroup } from '../core/pluginManager.js'
 import { currentId } from '../core/router.js'
 
-const GROUP_ORDER = ['概览', '基础办公', '专业工作', '休闲娱乐', '设置']
+const GROUP_ORDER = ['概览', '基础办公', '专业功能', '休闲娱乐', '设置']
 
 const FALLOFF = {
   linear: (p) => p,
