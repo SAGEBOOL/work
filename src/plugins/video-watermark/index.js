@@ -1,25 +1,6 @@
-// 视频去水印：上传视频 → ffmpeg.wasm 解码为帧 → 涂抹水印区域 → 逐帧 OpenCV inpaint → 重编码下载。
-// 浏览器端逐帧修复极慢，仅适合短视频（建议 <15s），且水印须为固定位置。引擎均从本站本地加载。
-import { el, clear } from '../../core/ui.js'
-
-function loadOpenCV() {
-  return new Promise((resolve, reject) => {
-    if (window.cv && window.cv.getVersion) return resolve(window.cv)
-    const s = document.createElement('script')
-    s.src = './opencv.js'
-    s.onload = () => {
-      let tries = 0
-      const wait = () => {
-        if (window.cv && window.cv.getVersion) return resolve(window.cv)
-        if (++tries > 200) return reject(new Error('OpenCV 初始化超时，请刷新页面重试'))
-        setTimeout(wait, 100)
-      }
-      wait()
-    }
-    s.onerror = () => reject(new Error('OpenCV 加载失败，请刷新页面重试'))
-    document.head.append(s)
-  })
-}
+// 视频去水印（遮挡版）：上传视频 → 框选水印区域 → 选覆盖方式（高斯模糊/马赛克/纯色块）
+// → Canvas + MediaRecorder 实时录制输出。纯前端、零下载、秒开，适合固定位置水印。
+import { el, clear, toast } from '../../core/ui.js'
 
 export const videoWatermarkPlugin = {
   id: 'video-watermark',
@@ -27,154 +8,158 @@ export const videoWatermarkPlugin = {
   icon: '🎬',
   group: '基础办公',
   mount(root) {
-    let ffmpeg = null
-    let fetchFileFn = null
-    let frames = []          // 帧文件名
-    let frameW = 0, frameH = 0
-    let busy = false
+    let videoEl = null
+    let regions = []          // { x, y, w, h }，坐标系 = 视频原始像素
+    let drawing = false, startPt = null, curRect = null
+    let recording = false
+    let outW = 0, outH = 0, scale = 1
+    let mediaRecorder = null, chunks = [], resultBlob = null, rafId = 0
 
     const fileInput = el('input', { type: 'file', accept: 'video/*', style: 'display:none' })
-    const drop = el('div', { class: 'dropzone' }, ['拖入视频，或点击选择（建议短视频 <15s，水印位置固定）'])
+    const drop = el('div', { class: 'dropzone' }, ['拖入视频，或点击选择（建议短视频，水印位置固定）'])
     const stage = el('div', { class: 'stage' })
-    const view = el('canvas', { class: 'view' })
-    const mask = el('canvas', { class: 'mask' })
-    stage.append(view, mask)
-    const vctx = view.getContext('2d')
-    const mctx = mask.getContext('2d')
-    const brush = el('input', { type: 'range', min: '8', max: '80', value: '28', style: 'width:160px' })
-    const brushVal = el('span', { class: 'muted' }, ['28px'])
-    const extractBtn = el('button', { class: 'btn' }, ['提取帧'])
-    const runBtn = el('button', { class: 'btn ghost' }, ['开始去水印'])
-    const dlBtn = el('button', { class: 'btn ghost' }, ['下载结果'])
+    const videoTag = el('video', { class: 'view', muted: 'true', playsinline: 'true', controls: 'true', style: 'max-width:100%;display:none' })
+    const overlay = el('canvas', { class: 'mask' })
+    overlay.style.display = 'none'
+    const outCanvas = el('canvas', { style: 'display:none' })
+    stage.append(videoTag, overlay, outCanvas)
+    const octx = overlay.getContext('2d')
+    const octx2 = outCanvas.getContext('2d')
+
+    const methodSel = el('select', {}, [
+      el('option', { value: 'blur' }, ['高斯模糊']),
+      el('option', { value: 'mosaic' }, ['马赛克']),
+      el('option', { value: 'solid' }, ['纯色块'])
+    ])
+    const strength = el('input', { type: 'range', min: '3', max: '30', value: '12', style: 'width:160px' })
+    const strengthVal = el('span', { class: 'muted' }, ['12'])
+    const clearBtn = el('button', { class: 'btn ghost' }, ['清除区域'])
+    const processBtn = el('button', { class: 'btn' }, ['开始处理'])
+    const dlBtn = el('button', { class: 'btn ghost', disabled: 'true' }, ['下载结果'])
     const alert = el('div', {})
     const prog = el('div', { class: 'muted' }, [''])
-    const hint = el('p', { class: 'hint' }, ['① 选择视频 → ② 提取帧（约 31MB 引擎，首次慢）→ ③ 在画面上涂抹水印 → ④ 开始去水印（逐帧修复，较慢）→ ⑤ 下载。'])
+    const hint = el('p', { class: 'hint' }, ['① 选择视频 → ② 在画面上拖拽框选水印区域（可框多个）→ ③ 选覆盖方式 → ④ 开始处理（实时录制，等待视频播放完）→ ⑤ 下载。'])
 
-    // ffmpeg 惰性加载（动态 import，避免污染主包）
-    const ensureFFmpeg = async () => {
-      if (ffmpeg) return ffmpeg
-      alert.className = ''; alert.textContent = '加载视频处理引擎（ffmpeg.wasm，约 31MB，首次较慢）…'
-      const { FFmpeg } = await import('@ffmpeg/ffmpeg')
-      const { toBlobURL, fetchFile } = await import('@ffmpeg/util')
-      fetchFileFn = fetchFile
-      ffmpeg = new FFmpeg()
-      await ffmpeg.load({
-        coreURL: await toBlobURL('./ffmpeg/ffmpeg-core.js', 'text/javascript'),
-        wasmURL: await toBlobURL('./ffmpeg/ffmpeg-core.wasm', 'application/wasm')
-      })
-      alert.textContent = ''
-      return ffmpeg
+    // —— 框选 ——
+    const toStage = (e) => {
+      const r = overlay.getBoundingClientRect()
+      return { x: (e.clientX - r.left) * (overlay.width / r.width), y: (e.clientY - r.top) * (overlay.height / r.height) }
     }
-
-    const setBusy = (b) => { busy = b; extractBtn.disabled = b; runBtn.disabled = b; fileInput.disabled = b }
-
-    // 画笔
-    let drawing = false
-    const pos = (e) => {
-      const r = mask.getBoundingClientRect()
-      return { x: (e.clientX - r.left) * (mask.width / r.width), y: (e.clientY - r.top) * (mask.height / r.height) }
+    const redraw = () => {
+      octx.clearRect(0, 0, overlay.width, overlay.height)
+      octx.strokeStyle = 'rgba(255,60,60,.95)'; octx.lineWidth = 2
+      const all = curRect ? [...regions, curRect] : regions
+      for (const rg of all) octx.strokeRect(rg.x, rg.y, rg.w, rg.h)
     }
-    const start = (e) => { drawing = true; mask.setPointerCapture(e.pointerId); const p = pos(e); mctx.beginPath(); mctx.moveTo(p.x, p.y); mctx.strokeStyle = 'rgba(255,60,60,.55)'; mctx.lineWidth = +brush.value; mctx.lineCap = 'round'; mctx.lineJoin = 'round' }
-    const move = (e) => { if (!drawing) return; const p = pos(e); mctx.lineTo(p.x, p.y); mctx.stroke() }
-    const end = () => { drawing = false }
-    mask.addEventListener('pointerdown', start)
-    mask.addEventListener('pointermove', move)
-    mask.addEventListener('pointerup', end)
-    mask.addEventListener('pointerleave', end)
-    brush.oninput = () => { brushVal.textContent = brush.value + 'px' }
+    overlay.onpointerdown = (e) => { drawing = true; overlay.setPointerCapture(e.pointerId); startPt = toStage(e); curRect = { x: startPt.x, y: startPt.y, w: 0, h: 0 } }
+    overlay.onpointermove = (e) => { if (!drawing) return; const p = toStage(e); curRect = { x: Math.min(startPt.x, p.x), y: Math.min(startPt.y, p.y), w: Math.abs(p.x - startPt.x), h: Math.abs(p.y - startPt.y) }; redraw() }
+    const finishRect = () => { if (!drawing) return; drawing = false; if (curRect && curRect.w > 4 && curRect.h > 4) regions.push(curRect); curRect = null; redraw() }
+    overlay.onpointerup = finishRect
+    overlay.onpointerleave = finishRect
+    strength.oninput = () => { strengthVal.textContent = strength.value }
+    clearBtn.onclick = () => { regions = []; redraw() }
 
     drop.onclick = () => fileInput.click()
-    fileInput.onchange = () => { if (fileInput.files[0]) extract(fileInput.files[0]); fileInput.value = '' }
+    fileInput.onchange = () => { if (fileInput.files[0]) loadVideo(fileInput.files[0]); fileInput.value = '' }
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over') }
     drop.ondragleave = () => drop.classList.remove('over')
-    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) extract(e.dataTransfer.files[0]) }
+    drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) loadVideo(e.dataTransfer.files[0]) }
 
-    const extract = async (file) => {
-      if (busy) return
-      setBusy(true)
-      try {
-        await ensureFFmpeg()
-        mctx.clearRect(0, 0, mask.width, mask.height)
-        alert.className = ''; alert.textContent = '写入视频…'
-        await ffmpeg.writeFile('in.mp4', await fetchFileFn(file))
-        alert.textContent = '解码为帧（降采样 15fps, 宽640）…'
-        await ffmpeg.exec(['-i', 'in.mp4', '-vf', 'fps=15,scale=640:-1', 'frames/f%04d.png'])
-        const list = await ffmpeg.listDir('frames')
-        frames = list.filter((f) => f.name.endsWith('.png')).map((f) => f.name).sort()
-        if (!frames.length) throw new Error('未能解码出帧')
-        const data = await ffmpeg.readFile('frames/' + frames[0])
-        const blob = new Blob([data], { type: 'image/png' })
-        const url = URL.createObjectURL(blob)
-        const img = new Image()
-        img.onload = () => {
-          frameW = img.naturalWidth; frameH = img.naturalHeight
-          for (const c of [view, mask]) { c.width = frameW; c.height = frameH; c.style.width = frameW + 'px'; c.style.height = frameH + 'px' }
-          vctx.drawImage(img, 0, 0, frameW, frameH)
-          mctx.clearRect(0, 0, frameW, frameH)
-          URL.revokeObjectURL(url)
-          alert.className = 'alert ok'; alert.textContent = `✓ 已提取 ${frames.length} 帧，请在画面上涂抹水印区域`
-        }
-        img.src = url
-      } catch (err) {
-        alert.className = 'alert err'; alert.textContent = '✗ ' + err.message
-      } finally { setBusy(false) }
+    const loadVideo = (file) => {
+      const url = URL.createObjectURL(file)
+      videoEl = videoTag
+      videoEl.src = url
+      videoEl.onloadedmetadata = () => {
+        const vw = videoEl.videoWidth, vh = videoEl.videoHeight
+        scale = Math.min(1, 1280 / vw)
+        outW = Math.round(vw * scale); outH = Math.round(vh * scale)
+        overlay.width = vw; overlay.height = vh
+        overlay.style.width = '100%'; overlay.style.maxWidth = '100%'
+        videoEl.style.display = 'block'
+        overlay.style.display = 'block'
+        videoEl.currentTime = 0
+        videoEl.pause()
+        regions = []; redraw()
+        alert.className = 'alert ok'; alert.textContent = `✓ 已加载（${vw}×${vh}），请在画面上拖拽框选水印区域`
+      }
     }
 
-    runBtn.onclick = async () => {
-      if (!frames.length) { alert.className = 'alert err'; alert.textContent = '请先提取帧'; return }
-      const hasMask = (() => { const d = mctx.getImageData(0, 0, mask.width, mask.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 10) return true; return false })()
-      if (!hasMask) { alert.className = 'alert err'; alert.textContent = '请先用画笔在水印上涂抹'; return }
-      if (frames.length > 600) { alert.className = 'alert err'; alert.textContent = `帧数过多（${frames.length}），浏览器易卡死，请用更短的视频`; return }
-      setBusy(true)
-      try {
-        const cv = await loadOpenCV()
-        alert.className = ''; alert.textContent = '逐帧修复中…'
-        const outCanvas = document.createElement('canvas')
-        outCanvas.width = frameW; outCanvas.height = frameH
-        const octx = outCanvas.getContext('2d')
-        const maskMat = cv.imread(mask)
-        cv.cvtColor(maskMat, maskMat, cv.COLOR_RGBA2GRAY)
-        cv.threshold(maskMat, maskMat, 10, 255, cv.THRESH_BINARY)
-        for (let i = 0; i < frames.length; i++) {
-          const data = await ffmpeg.readFile('frames/' + frames[i])
-          const blob = new Blob([data], { type: 'image/png' })
-          const url = URL.createObjectURL(blob)
-          await new Promise((res) => { const img = new Image(); img.onload = () => { octx.drawImage(img, 0, 0, frameW, frameH); res() }; img.src = url })
-          URL.revokeObjectURL(url)
-          const src = cv.imread(outCanvas)
-          const dst = new cv.Mat()
-          cv.inpaint(src, maskMat, dst, 3, cv.INPAINT_TELEA)
-          cv.imshow(outCanvas, dst)
-          src.delete(); dst.delete()
-          const pngBlob = await new Promise((res) => outCanvas.toBlob(res, 'image/png'))
-          const buf = await pngBlob.arrayBuffer()
-          await ffmpeg.writeFile('out/' + frames[i], new Uint8Array(buf))
-          prog.textContent = `进度 ${i + 1}/${frames.length}`
+    // —— 每帧绘制（实时应用覆盖）——
+    const drawFrame = () => {
+      octx2.clearRect(0, 0, outW, outH)
+      octx2.drawImage(videoEl, 0, 0, outW, outH)
+      const method = methodSel.value
+      const s = +strength.value
+      for (const rg of regions) {
+        const x = rg.x * scale, y = rg.y * scale, w = rg.w * scale, h = rg.h * scale
+        if (method === 'blur') {
+          octx2.save()
+          octx2.beginPath(); octx2.rect(x, y, w, h); octx2.clip()
+          octx2.filter = `blur(${s}px)`
+          octx2.drawImage(videoEl, 0, 0, outW, outH)
+          octx2.restore()
+        } else if (method === 'mosaic') {
+          const tw = Math.max(1, Math.round(w / s)), th = Math.max(1, Math.round(h / s))
+          const tmp = document.createElement('canvas'); tmp.width = tw; tmp.height = th
+          const tctx = tmp.getContext('2d'); tctx.imageSmoothingEnabled = false
+          tctx.drawImage(videoEl, rg.x, rg.y, rg.w, rg.h, 0, 0, tw, th)
+          octx2.imageSmoothingEnabled = false
+          octx2.drawImage(tmp, 0, 0, tw, th, x, y, w, h)
+          octx2.imageSmoothingEnabled = true
+        } else {
+          octx2.fillStyle = 'rgba(0,0,0,.88)'
+          octx2.fillRect(x, y, w, h)
         }
-        maskMat.delete()
-        alert.textContent = '重新编码视频…'
-        await ffmpeg.exec(['-i', 'out/f%04d.png', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', 'out.mp4'])
-        const out = await ffmpeg.readFile('out.mp4')
-        const outBlob = new Blob([out], { type: 'video/mp4' })
+      }
+    }
+    const loop = () => { if (!recording) return; drawFrame(); rafId = requestAnimationFrame(loop) }
+
+    processBtn.onclick = () => {
+      if (!videoEl) { alert.className = 'alert err'; alert.textContent = '请先选择视频'; return }
+      if (!regions.length) { alert.className = 'alert err'; alert.textContent = '请先框选水印区域'; return }
+      if (recording) return
+      if (typeof MediaRecorder === 'undefined' || !outCanvas.captureStream) {
+        alert.className = 'alert err'; alert.textContent = '当前浏览器不支持视频录制（需 MediaRecorder）'; return
+      }
+      let mime = ''
+      for (const m of ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']) {
+        if (MediaRecorder.isTypeSupported(m)) { mime = m; break }
+      }
+      if (!mime) { alert.className = 'alert err'; alert.textContent = '当前浏览器不支持 WebM 录制'; return }
+
+      outCanvas.width = outW; outCanvas.height = outH
+      chunks = []
+      mediaRecorder = new MediaRecorder(outCanvas.captureStream(30), { mimeType: mime })
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
+      mediaRecorder.onstop = () => {
+        resultBlob = new Blob(chunks, { type: mime })
+        dlBtn.disabled = false
         dlBtn.onclick = () => {
-          const u = URL.createObjectURL(outBlob)
-          const a = el('a', { href: u, download: 'video-watermark-removed.mp4' }); document.body.append(a); a.click(); a.remove()
-          setTimeout(() => URL.revokeObjectURL(u), 1500)
+          const u = URL.createObjectURL(resultBlob)
+          const a = el('a', { href: u, download: 'video-watermark.webm' }); document.body.append(a); a.click(); a.remove()
+          setTimeout(() => URL.revokeObjectURL(u), 2000)
         }
-        alert.className = 'alert ok'; alert.textContent = `✓ 处理完成，可下载（${frames.length} 帧）`
-      } catch (err) {
-        alert.className = 'alert err'; alert.textContent = '✗ ' + err.message
-      } finally { setBusy(false) }
+        alert.className = 'alert ok'; alert.textContent = '✓ 处理完成，可下载（WebM 格式）'
+        recording = false; processBtn.disabled = false; prog.textContent = ''
+      }
+      recording = true; processBtn.disabled = true; dlBtn.disabled = true
+      videoEl.currentTime = 0
+      videoEl.play()
+      mediaRecorder.start()
+      loop()
+      videoEl.onended = () => { if (recording) { recording = false; mediaRecorder.stop(); videoEl.pause() } }
+      alert.className = ''; alert.textContent = '处理中（实时录制，请等待视频播放结束）…'
     }
 
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['视频去水印']),
-      el('p', { class: 'sub' }, ['逐帧 OpenCV 内容修复（浏览器端，需 ffmpeg.wasm，建议短视频）']),
+      el('p', { class: 'sub' }, ['纯前端遮挡（高斯模糊 / 马赛克 / 纯色块）· 零下载 · 适合固定位置水印']),
       el('div', { class: 'card' }, [drop, hint, stage]),
       el('div', { class: 'card', style: 'margin-top:16px' }, [
-        el('div', { class: 'row' }, [
-          el('label', { class: 'muted' }, ['笔刷']), brush, brushVal,
-          el('span', { style: 'flex:1' }), extractBtn, runBtn, dlBtn
+        el('div', { class: 'row', style: 'flex-wrap:wrap;gap:10px;align-items:center' }, [
+          el('label', { class: 'muted' }, ['覆盖方式']), methodSel,
+          el('label', { class: 'muted' }, ['强度']), strength, strengthVal,
+          el('span', { style: 'flex:1' }), clearBtn, processBtn, dlBtn
         ]),
         alert, prog
       ])
