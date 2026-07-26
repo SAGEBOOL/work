@@ -3,6 +3,7 @@ import { el, clear } from '../core/ui.js'
 import { getSettings, update } from '../core/store.js'
 import { PROVIDERS } from '../core/aiGateway.js'
 import { applyTheme } from '../core/ui.js'
+import { toggleNav } from './nav.js'
 
 export function renderTopbar(root, { navigate }) {
   clear(root)
@@ -28,8 +29,13 @@ export function renderTopbar(root, { navigate }) {
     onclick: () => navigate('settings')
   }, ['⚙️'])
 
+  const menuBtn = el('button', {
+    class: 'btn-icon menu-toggle', title: '菜单',
+    onclick: () => toggleNav()
+  }, ['☰'])
+
   root.append(
-    el('div', { class: 'topbar-left' }, [status]),
+    el('div', { class: 'topbar-left' }, [menuBtn, status]),
     el('div', { class: 'topbar-right' }, [themeBtn, setBtn])
   )
 }
