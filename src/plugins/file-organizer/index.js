@@ -1,5 +1,5 @@
-// 文件归纳：上传多文件/文件夹 → 按类型/年月/大小分组 → 统计 → 打包 ZIP 或导出 CSV 清单。
-// 纯前端，使用 jszip。文件不离开本机。
+// 文件归纳：上传多文件/文件夹 → 按类型/年月/大小分组 → 统计 → 打包 ZIP 或导出 CSV。
+// 新增「相同文件」：基于 SHA-256 内容哈希找出重复文件。纯前端，使用 jszip，文件不离开本机。
 import { el, clear } from '../../core/ui.js'
 import JSZip from 'jszip'
 
@@ -19,6 +19,12 @@ const catOf = (mode, f) => {
   return '4_超大 (>10MB)'
 }
 
+async function sha256(file) {
+  const buf = await file.arrayBuffer()
+  const digest = await crypto.subtle.digest('SHA-256', buf)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 export const fileOrganizerPlugin = {
   id: 'file-organizer',
   name: '文件归纳',
@@ -27,6 +33,7 @@ export const fileOrganizerPlugin = {
   mount(root) {
     let items = []      // { file, name, size, lastModified }
     let mode = 'type'
+    const hashCache = new Map()  // file -> sha256
 
     const fileInput = el('input', { type: 'file', multiple: 'true', style: 'display:none' })
     const folderInput = el('input', { type: 'file', multiple: 'true', webkitdirectory: '', style: 'display:none' })
@@ -38,7 +45,8 @@ export const fileOrganizerPlugin = {
     const tabType = el('button', { class: 'tab active' }, ['按类型'])
     const tabDate = el('button', { class: 'tab' }, ['按年月'])
     const tabSize = el('button', { class: 'tab' }, ['按大小'])
-    const tabs = el('div', { class: 'tabs' }, [tabType, tabDate, tabSize])
+    const tabDup = el('button', { class: 'tab' }, ['相同文件'])
+    const tabs = el('div', { class: 'tabs' }, [tabType, tabDate, tabSize, tabDup])
     const zipBtn = el('button', { class: 'btn' }, ['打包下载 ZIP'])
     const csvBtn = el('button', { class: 'btn ghost' }, ['导出清单 CSV'])
 
@@ -46,6 +54,7 @@ export const fileOrganizerPlugin = {
     const renderList = () => {
       clear(listEl)
       if (!items.length) { listEl.append(el('div', { class: 'muted' }, ['尚未选择文件'])); return }
+      if (mode === 'dup') { renderDup(); return }
       const groups = {}
       for (const it of items) (groups[catOf(mode, it)] ||= []).push(it)
       const total = items.reduce((s, x) => s + x.size, 0)
@@ -59,16 +68,54 @@ export const fileOrganizerPlugin = {
         ]))
       }
     }
+    const renderDup = async () => {
+      listEl.append(el('div', { class: 'muted' }, ['正在计算文件指纹（SHA-256）…']))
+      const map = {}
+      for (const it of items) {
+        if (!hashCache.has(it.file)) {
+          try { hashCache.set(it.file, await sha256(it.file)) } catch { hashCache.set(it.file, 'ERR:' + it.name) }
+        }
+        const h = hashCache.get(it.file)
+        ;(map[h] ||= []).push(it)
+      }
+      clear(listEl)
+      const dups = Object.entries(map).filter(([, g]) => g.length > 1)
+      const dupCount = dups.reduce((s, [, g]) => s + g.length - 1, 0)
+      if (!dups.length) {
+        listEl.append(el('div', { class: 'muted' }, [`未找到重复文件（已比对 ${items.length} 个文件的内容指纹）`]))
+        return
+      }
+      listEl.append(el('div', { class: 'grp-head', style: 'margin-bottom:8px' }, [
+        el('span', { class: 'grp-name' }, [`发现 ${dups.length} 组重复 · 共 ${dupCount} 个多余副本`])
+      ]))
+      for (const [h, g] of dups) {
+        listEl.append(el('div', { class: 'grp' }, [
+          el('div', { class: 'grp-head' }, [
+            el('span', { class: 'grp-name' }, ['指纹 ' + h.slice(0, 12)]),
+            el('span', { class: 'muted' }, [`${g.length} 个相同 · ${fmtSize(g[0].size)}`])
+          ]),
+          el('div', { class: 'grp-items' }, g.map((it) => {
+            const del = el('button', { class: 'mini', title: '移除此副本' }, ['✕'])
+            del.onclick = () => {
+              const i = items.indexOf(it); if (i >= 0) items.splice(i, 1)
+              hashCache.delete(it.file); renderList()
+            }
+            return el('span', { class: 'chip' }, [it.name, del])
+          }))
+        ]))
+      }
+    }
     const setMode = (m) => {
       mode = m
-      tabType.className = 'tab' + (m === 'type' ? ' active' : '')
-      tabDate.className = 'tab' + (m === 'date' ? ' active' : '')
-      tabSize.className = 'tab' + (m === 'size' ? ' active' : '')
+      for (const [t, mm] of [[tabType, 'type'], [tabDate, 'date'], [tabSize, 'size'], [tabDup, 'dup']]) {
+        t.className = 'tab' + (mm === m ? ' active' : '')
+      }
       renderList()
     }
     tabType.onclick = () => setMode('type')
     tabDate.onclick = () => setMode('date')
     tabSize.onclick = () => setMode('size')
+    tabDup.onclick = () => setMode('dup')
 
     btnFiles.onclick = () => { folderInput.value = ''; fileInput.click() }
     btnFolder.onclick = () => { fileInput.value = ''; folderInput.click() }
@@ -109,7 +156,7 @@ export const fileOrganizerPlugin = {
     setMode('type')
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['文件归纳']),
-      el('p', { class: 'sub' }, ['按类型/年月/大小自动分类，打包成有序 ZIP 或导出清单 · 文件不离开本机']),
+      el('p', { class: 'sub' }, ['按类型/年月/大小自动分类，或按内容指纹查找重复文件 · 文件不离开本机']),
       el('div', { class: 'card' }, [
         tabs, drop,
         el('div', { class: 'row', style: 'margin-top:12px' }, [btnFiles, btnFolder]),
