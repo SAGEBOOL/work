@@ -6,6 +6,7 @@ import { initRouter, navigate } from './core/router.js'
 import { registerPlugin } from './core/pluginManager.js'
 import { renderSidebar } from './components/sidebar.js'
 import { renderTopbar } from './components/topbar.js'
+import { closeNav } from './components/nav.js'
 
 import { overviewPlugin } from './plugins/overview/index.js'
 import { pomodoroPlugin } from './plugins/pomodoro/index.js'
@@ -44,8 +45,9 @@ const sidebarEl = el('aside', { class: 'sidebar' })
 const mainEl = el('main', { class: 'main' })
 const topbarEl = el('header', { class: 'topbar' })
 const contentEl = el('section', { class: 'content' })
+const overlayEl = el('div', { class: 'sidebar-overlay', onclick: () => closeNav() })
 mainEl.append(topbarEl, contentEl)
-app.append(sidebarEl, mainEl)
+app.append(sidebarEl, mainEl, overlayEl)
 
 const rerenderChrome = () => {
   renderSidebar(sidebarEl, { navigate })
