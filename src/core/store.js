@@ -20,6 +20,9 @@ const defaultState = {
     apiKeys: {},                                  // { providerId: key }
     defaultProvider: 'deepseek',
     defaultModel: 'deepseek-chat',
+    providerConfig: {                             // 各供应商额外配置（如本地模型地址）
+      ollama: { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
+    },
     industry: ['建筑规划', '非遗传创'],
     dataSources: { local: true, web: false, ima: false, tencentDocs: false },
     theme: 'light'
@@ -39,6 +42,7 @@ function load() {
         ...clone(defaultState.settings),
         ...(p.settings || {}),
         apiKeys: { ...(p.settings?.apiKeys || {}) },
+        providerConfig: { ...clone(defaultState.settings.providerConfig), ...(p.settings?.providerConfig || {}) },
         dataSources: { ...clone(defaultState.settings.dataSources), ...(p.settings?.dataSources || {}) },
         industry: Array.isArray(p.settings?.industry) ? p.settings.industry : clone(defaultState.settings.industry)
       }
