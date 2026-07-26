@@ -265,3 +265,14 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 
 /* ---------- 便签 ---------- */
 #wb-memo-status { font-size: 12px; }
+
+/* ---------- AI 翻译 ---------- */
+.trans-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.trans-header label { margin: 0; }
+.copy-btn { min-width: 56px; }
+.copy-btn:disabled { opacity: .5; cursor: not-allowed; }
+.trans-output {
+  min-height: 120px; padding: 14px; border-radius: var(--radius);
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); white-space: pre-wrap; line-height: 1.7;
+}
