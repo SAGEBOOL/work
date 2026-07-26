@@ -1,26 +1,6 @@
 // 图片去水印：上传图 → 画笔遮盖水印区域 → OpenCV 内容识别修复(inpaint) → 下载。
-// OpenCV.js 运行时从 CDN 加载（仅用户浏览器需联网，不影响构建）。全程本机，不上传。
+// OpenCV.js 随站点一起部署（约 10MB），懒加载 + 进度条，进入页面即后台预加载，不阻塞首屏。全程本机，不上传。
 import { el, clear } from '../../core/ui.js'
-
-function loadOpenCV() {
-  return new Promise((resolve, reject) => {
-    if (window.cv && window.cv.getVersion) return resolve(window.cv)
-    const s = document.createElement('script')
-    // 随站点一起部署，避免外部 CDN 在国内不可用
-    s.src = './opencv.js'
-    s.onload = () => {
-      let tries = 0
-      const wait = () => {
-        if (window.cv && window.cv.getVersion) return resolve(window.cv)
-        if (++tries > 200) return reject(new Error('OpenCV 初始化超时，请刷新页面重试'))
-        setTimeout(wait, 100)
-      }
-      wait()
-    }
-    s.onerror = () => reject(new Error('OpenCV 加载失败，请刷新页面重试'))
-    document.head.append(s)
-  })
-}
 
 export const imageWatermarkPlugin = {
   id: 'image-watermark',
@@ -44,7 +24,12 @@ export const imageWatermarkPlugin = {
     const runBtn = el('button', { class: 'btn' }, ['去除水印'])
     const dlBtn = el('button', { class: 'btn ghost' }, ['下载结果'])
     const alert = el('div', {})
-    const engineTip = el('div', { class: 'hint' }, ['首次使用会自动加载修复引擎（约 8MB，需联网，仅加载一次）。'])
+
+    // 引擎加载进度条
+    const cvFill = el('div', { class: 'cv-fill' })
+    const cvBar = el('div', { class: 'cv-bar' }, [ cvFill ])
+    const cvPct = el('div', { class: 'cv-pct muted' }, ['修复引擎准备中…'])
+    const cvProgress = el('div', { class: 'cv-progress' }, [ cvBar, cvPct ])
 
     const vctx = view.getContext('2d')
     const mctx = mask.getContext('2d')
@@ -98,13 +83,70 @@ export const imageWatermarkPlugin = {
     mask.addEventListener('pointerup', end)
     mask.addEventListener('pointerleave', end)
 
+    // 懒加载 OpenCV 引擎：fetch 流式下载 + 进度条；进入页面即后台预加载，不阻塞交互
+    let cvPromise = null
+    const ensureOpenCV = () => {
+      if (window.cv && window.cv.getVersion) return Promise.resolve(window.cv)
+      if (cvPromise) return cvPromise
+      cvPromise = new Promise((resolve, reject) => {
+        fetch('./opencv.js').then((resp) => {
+          if (!resp.ok) throw new Error('引擎下载失败（HTTP ' + resp.status + '）')
+          const total = +resp.headers.get('content-length') || 0
+          if (!total) { cvFill.classList.add('indeterminate'); cvPct.textContent = '引擎加载中…' }
+          const reader = resp.body.getReader()
+          const chunks = []
+          let received = 0
+          const pump = () => reader.read().then(({ done, value }) => {
+            if (done) {
+              const blob = new Blob(chunks, { type: 'application/javascript' })
+              const url = URL.createObjectURL(blob)
+              const s = document.createElement('script')
+              s.src = url
+              s.onload = () => {
+                let tries = 0
+                const wait = () => {
+                  if (window.cv && window.cv.getVersion) {
+                    URL.revokeObjectURL(url)
+                    cvFill.style.width = '100%'
+                    cvPct.textContent = '✓ 修复引擎已就绪'
+                    cvProgress.classList.add('ready')
+                    cvReady = true
+                    return resolve(window.cv)
+                  }
+                  if (++tries > 200) return reject(new Error('OpenCV 初始化超时，请刷新页面重试'))
+                  setTimeout(wait, 100)
+                }
+                wait()
+              }
+              s.onerror = () => reject(new Error('引擎执行失败，请刷新页面重试'))
+              document.head.append(s)
+              return
+            }
+            chunks.push(value)
+            received += value.length
+            if (total) {
+              const pct = Math.round((received / total) * 100)
+              cvFill.style.width = pct + '%'
+              cvPct.textContent = '引擎加载中 ' + pct + '%'
+            }
+            pump()
+          })
+          pump()
+        }).catch(reject)
+      }).catch((err) => { cvPromise = null; throw err })  // 失败可重试：重置后下次重新加载
+      return cvPromise
+    }
+    // 进入页面即后台预加载（不阻塞），提前拿到引擎
+    ensureOpenCV().catch(() => { cvPct.textContent = '引擎加载失败，点击「去除水印」时自动重试'; cvProgress.classList.add('err') })
+
     runBtn.onclick = async () => {
       if (!view.width) { alert.className = 'alert err'; alert.textContent = '请先上传图片'; return }
       const hasMask = (() => { const d = mctx.getImageData(0, 0, mask.width, mask.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 10) return true; return false })()
       if (!hasMask) { alert.className = 'alert err'; alert.textContent = '请先用画笔在水印上涂抹'; return }
-      runBtn.disabled = true; alert.className = ''; alert.textContent = '加载/调用修复引擎…'
+      runBtn.disabled = true; alert.className = ''; alert.textContent = '正在准备修复引擎…'
       try {
-        const cv = await loadOpenCV(); cvReady = true; engineTip.textContent = '修复引擎已就绪。'
+        const cv = await ensureOpenCV()
+        alert.textContent = '修复中…'
         const src = cv.imread(view)
         const rgba = cv.imread(mask)
         const chans = new cv.MatVector(); cv.split(rgba, chans)
@@ -126,7 +168,7 @@ export const imageWatermarkPlugin = {
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['图片去水印']),
       el('p', { class: 'sub' }, ['画笔涂抹水印区域，内容识别算法自动填充 · 纯本机处理']),
-      el('div', { class: 'card' }, [drop, engineTip, stage]),
+      el('div', { class: 'card' }, [drop, cvProgress, stage]),
       el('div', { class: 'card', style: 'margin-top:16px' }, [
         el('div', { class: 'row' }, [
           el('label', { class: 'muted' }, ['笔刷']), brush, brushVal,
