@@ -406,6 +406,7 @@ body.nav-open { overflow: hidden; }
 
 /* ================= 移动端自适应（≤768px） ================= */
 @media (max-width: 768px) {
+  html, body { height: auto; }
   #app { display: block; height: auto; min-height: 100vh; overflow: visible; }
 
   /* 侧边栏变为左侧抽屉，不挤压主内容 */
