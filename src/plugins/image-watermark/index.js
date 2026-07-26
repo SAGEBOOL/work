@@ -5,11 +5,19 @@ import { el, clear } from '../../core/ui.js'
 function loadOpenCV() {
   return new Promise((resolve, reject) => {
     if (window.cv && window.cv.getVersion) return resolve(window.cv)
-    const wait = () => (window.cv && window.cv.getVersion) ? resolve(window.cv) : setTimeout(wait, 50)
     const s = document.createElement('script')
-    s.src = 'https://docs.opencv.org/4.10.0/opencv.js'
-    s.onload = () => wait()
-    s.onerror = () => reject(new Error('OpenCV 加载失败，请检查网络后重试'))
+    // 随站点一起部署，避免外部 CDN 在国内不可用
+    s.src = './opencv.js'
+    s.onload = () => {
+      let tries = 0
+      const wait = () => {
+        if (window.cv && window.cv.getVersion) return resolve(window.cv)
+        if (++tries > 200) return reject(new Error('OpenCV 初始化超时，请刷新页面重试'))
+        setTimeout(wait, 100)
+      }
+      wait()
+    }
+    s.onerror = () => reject(new Error('OpenCV 加载失败，请刷新页面重试'))
     document.head.append(s)
   })
 }
