@@ -191,6 +191,28 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .stage .view, .stage .mask { display: block; max-width: 100%; }
 .stage .mask { position: absolute; left: 0; top: 0; cursor: crosshair; touch-action: none; }
 
+/* ---------- 引擎加载进度条 ---------- */
+.cv-progress { margin-top: 12px; }
+.cv-bar {
+  height: 8px; border-radius: 6px; background: var(--panel-2);
+  border: 1px solid var(--border); overflow: hidden;
+}
+.cv-fill {
+  height: 100%; width: 0%; background: var(--primary);
+  transition: width .15s ease;
+}
+.cv-fill.indeterminate {
+  width: 40% !important; margin-left: -40%;
+  animation: cv-indet 1.1s ease-in-out infinite;
+}
+@keyframes cv-indet {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+.cv-pct { font-size: 12px; margin-top: 6px; color: var(--text-3); }
+.cv-progress.ready .cv-pct { color: var(--ok); }
+.cv-progress.err .cv-pct { color: var(--off); }
+
 /* ---------- 保存栏 & Toast ---------- */
 .save-bar { display: flex; align-items: center; gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
 .save-status { font-size: 12.5px; color: var(--text-3); }
