@@ -3,6 +3,7 @@
 import { el, clear } from '../core/ui.js'
 import { pluginsByGroup } from '../core/pluginManager.js'
 import { currentId } from '../core/router.js'
+import { closeNav } from './nav.js'
 
 const GROUP_ORDER = ['概览', '基础办公', '专业功能', '休闲娱乐', '设置']
 
@@ -126,19 +127,18 @@ export function renderSidebar(root, { navigate }) {
     const list = el('ul', { class: 'line-sidebar__list' })
     for (const p of items) {
       const isActive = p.id === active
-      list.append(
-        el('li', {
-          class: 'line-sidebar__item',
-          'aria-current': isActive ? 'true' : undefined,
-          onclick: () => navigate(p.id)
-        }, [
-          el('span', { class: 'line-sidebar__marker', 'aria-hidden': 'true' }),
-          el('span', { class: 'line-sidebar__label' }, [
-            el('span', { class: 'line-sidebar__ico' }, [p.icon || '•']),
-            el('span', { class: 'line-sidebar__text' }, [p.name])
-          ])
+      const item = el('li', {
+        class: 'line-sidebar__item',
+        'aria-current': isActive ? 'true' : undefined
+      }, [
+        el('span', { class: 'line-sidebar__marker', 'aria-hidden': 'true' }),
+        el('span', { class: 'line-sidebar__label' }, [
+          el('span', { class: 'line-sidebar__ico' }, [p.icon || '•']),
+          el('span', { class: 'line-sidebar__text' }, [p.name])
         ])
-      )
+      ])
+      item.onclick = () => { navigate(p.id); closeNav() }
+      list.append(item)
     }
 
     const nav = el('nav', { class: 'line-sidebar line-sidebar--markers line-sidebar--scale-tick' }, [list])
