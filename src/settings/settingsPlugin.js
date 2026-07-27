@@ -468,11 +468,25 @@ export const settingsPlugin = {
     ])
     refreshList()
 
+    // ---------- 数据抓取代理（CORS Proxy） ----------
+    const proxyI = el('input', { type: 'text', value: s.corsProxy || '', placeholder: 'https://你的代理/?url=' })
+    const proxyCard = el('div', { class: 'card' }, [
+      el('h3', {}, ['数据抓取代理（CORS Proxy）']),
+      el('p', { class: 'hint' }, ['行业研究「③ 导入数据 · 从第②步数据源录入」可经此代理自动抓取网页表格。公共代理（如 allorigins）在部分网络下可能不稳，北京网络建议自备可用代理。代理需以 ?url= 或路径前缀形式接收目标地址。']),
+      el('div', { class: 'field' }, [el('label', {}, ['代理地址前缀']), proxyI]),
+      el('button', { class: 'btn ghost' }, ['保存代理地址'])
+    ])
+    proxyCard.querySelector('button').onclick = () => {
+      update((st) => { st.settings.corsProxy = proxyI.value.trim() })
+      markSaved(); toast('代理地址已保存', 'ok')
+    }
+
     page.append(apiCard)
     page.append(customCard)
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
     page.append(themeCard)
     page.append(dataCard)
+    page.append(proxyCard)
 
     // ---------- 保存栏 ----------
     const saveStatus = el('span', { class: 'save-status' }, ['● 修改自动保存已开启'])
