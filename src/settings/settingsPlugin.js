@@ -1,7 +1,7 @@
 // 设置中心：所有插件的公共底座。
 // 负责 API Key、默认模型、行业标签、数据源、主题、自定义模型，并持久化到 localStorage。
 import { el, clear, toast } from '../core/ui.js'
-import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS } from '../core/store.js'
+import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS, logHistory } from '../core/store.js'
 import { PROVIDERS, getProvider, callChat } from '../core/aiGateway.js'
 
 export const settingsPlugin = {
@@ -411,7 +411,7 @@ export const settingsPlugin = {
         const del = el('button', { class: 'mini', title: '删除该键' }, ['✕'])
         del.onclick = () => {
           if (confirm('确认删除「' + k + '」？此操作不可恢复。')) {
-            localStorage.removeItem(k); refreshList(); markSaved()
+            localStorage.removeItem(k); refreshList(); markSaved(); logHistory('删除数据', k)
           }
         }
         listBox.append(el('div', { class: 'kv-r', style: 'grid-template-columns: 2fr 1fr 44px' }, [
@@ -435,6 +435,7 @@ export const settingsPlugin = {
       const a = el('a', { href: URL.createObjectURL(blob), download: 'opwb-backup-' + new Date().toISOString().slice(0, 10) + '.json' })
       document.body.append(a); a.click(); a.remove()
       toast('已导出 ' + keys.length + ' 项数据', 'ok')
+      logHistory('导出全部数据', keys.length + ' 项')
     }
 
     const fileInput = el('input', { type: 'file', accept: 'application/json', style: 'display:none' })
@@ -451,6 +452,7 @@ export const settingsPlugin = {
         }
         refreshList()
         toast('已导入 ' + n + ' 项，即将刷新', 'ok')
+        logHistory('导入恢复', n + ' 项')
         setTimeout(() => location.reload(), 900)
       } catch (err) {
         toast('导入失败：' + err.message, 'err')
@@ -468,6 +470,124 @@ export const settingsPlugin = {
     ])
     refreshList()
 
+    // ---------- 7. 历史记录（任务执行记录与产物） ----------
+    const NAME_MAP = {
+      'opwb:ba:v1': '💰 收支分析',
+      'opwb:ir:v1': '📊 行业研究',
+      'opwb:ia:v1': '📈 经营分析',
+      'opwb:crm:v1': '🤝 客户跟踪',
+      'opwb:doc:v1': '📁 专业资料整理',
+      'opwb:notes:calendar': '📅 日历·天气',
+      'opwb:notes:memo': '📝 便签',
+      'opwb:state:v1': '⚙️ 应用设置'
+    }
+    const friendlyName = (k) => NAME_MAP[k] || ('📦 ' + k.replace(/^opwb:/, ''))
+    const describe = (k, raw) => {
+      let o = null
+      try { o = JSON.parse(raw) } catch { return '文本数据' }
+      const n = (x) => Array.isArray(o[x]) ? o[x].length : 0
+      switch (k) {
+        case 'opwb:ba:v1': {
+          const rows = o.rows || []
+          const rev = rows.reduce((a, r) => a + (+r.revenue || 0), 0)
+          return `收支分析 · ${rows.length} 个周期 · 合计营收 ¥${rev.toLocaleString()}`
+        }
+        case 'opwb:ir:v1': return `行业研究 · ${n('datasets')} 个数据集 · ${n('sources')} 个数据源`
+        case 'opwb:ia:v1': return `经营分析 · ${n('rows')} 条记录`
+        case 'opwb:crm:v1': {
+          const list = o.customers || o
+          const c = Array.isArray(list) ? list.length : (o ? Object.keys(o).length : 0)
+          return `客户跟踪 · ${c} 个客户`
+        }
+        case 'opwb:doc:v1': return `专业资料整理 · ${n('docs')} 份`
+        case 'opwb:state:v1': return '应用设置（含 API 密钥/默认模型/行业标签等）'
+        default: {
+          const a = o.rows || o.datasets || o.customers || o.docs
+          return Array.isArray(a) ? `${a.length} 条记录` : 'JSON 数据'
+        }
+      }
+    }
+
+    const logBox = el('div', { class: 'kv-table' })
+    const renderLog = () => {
+      clear(logBox)
+      const items = getHistory().slice().reverse()
+      if (!items.length) {
+        logBox.append(el('div', { class: 'kv-r', style: 'grid-template-columns: 1fr' }, [
+          el('span', { class: 'muted' }, ['暂无操作日志。后续在设置中的导出 / 导入 / 删除数据会自动记录。'])
+        ]))
+        return
+      }
+      items.forEach((it) => {
+        const time = new Date(it.t).toLocaleString()
+        logBox.append(el('div', { class: 'kv-r', style: 'grid-template-columns: 1fr' }, [
+          el('div', { style: 'display:flex;gap:8px;align-items:baseline' }, [
+            el('span', { class: 'tag' }, [it.action]),
+            el('span', { class: 'muted', style: 'font-size:12px' }, [time])
+          ]),
+          it.detail ? el('div', { class: 'muted', style: 'font-size:12px;margin-top:2px' }, [it.detail]) : null
+        ].filter(Boolean)))
+      })
+    }
+
+    const prodBox = el('div', { class: 'kv-table' })
+    const renderProducts = () => {
+      clear(prodBox)
+      const keys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith('opwb:') && k !== 'opwb:history:v1') keys.push(k)
+      }
+      keys.sort()
+      if (!keys.length) {
+        prodBox.append(el('div', { class: 'kv-r', style: 'grid-template-columns: 1fr' }, [
+          el('span', { class: 'muted' }, ['（暂无任务产物数据）'])
+        ]))
+        return
+      }
+      keys.forEach((k) => {
+        const raw = localStorage.getItem(k) || ''
+        const size = raw.length
+        const preview = el('pre', { class: 'json-preview', style: 'display:none' }, [])
+        const detail = describe(k, raw)
+        const view = el('button', { class: 'mini', title: '查看内容' }, ['👁'])
+        view.onclick = () => {
+          if (preview.style.display === 'none') {
+            const txt = size > 6000 ? (raw.slice(0, 6000) + '\n…（已截断，共 ' + (size / 1024).toFixed(1) + ' KB）') : raw
+            preview.textContent = txt
+            preview.style.display = 'block'
+            view.textContent = '🙈'
+          } else { preview.style.display = 'none'; view.textContent = '👁' }
+        }
+        const del = el('button', { class: 'mini', title: '删除' }, ['✕'])
+        del.onclick = () => {
+          if (confirm('确认删除「' + friendlyName(k) + '」？此操作不可恢复。')) {
+            localStorage.removeItem(k); renderProducts(); renderLog(); markSaved(); logHistory('删除数据', k)
+          }
+        }
+        prodBox.append(
+          el('div', { class: 'kv-r', style: 'grid-template-columns: 2fr 1.4fr 96px' }, [
+            el('div', {}, [
+              el('div', { style: 'font-weight:600' }, [friendlyName(k)]),
+              el('div', { class: 'muted', style: 'font-size:12px' }, [detail])
+            ]),
+            el('span', {}, [(size / 1024).toFixed(1) + ' KB']),
+            el('div', { class: 'row', style: 'gap:4px;justify-content:flex-end' }, [view, del])
+          ]),
+          preview
+        )
+      })
+    }
+    renderLog()
+    renderProducts()
+
+    const historyCard = el('div', { class: 'card' }, [
+      el('h3', {}, ['历史记录']),
+      el('p', { class: 'hint' }, ['本机所有任务执行产生的记录与产物（数据仅存浏览器，换设备需重新录入或导出备份）。下方「任务产物」为当前各插件在本机保存的数据，「操作日志」为后续在设置中的导出 / 导入 / 删除动作。']),
+      el('div', { class: 'field' }, [el('label', {}, ['任务产物（本机数据）']), prodBox]),
+      el('div', { class: 'field', style: 'margin-top:14px' }, [el('label', {}, ['操作日志']), logBox])
+    ])
+
     // ---------- 数据抓取代理（CORS Proxy） ----------
     const proxyI = el('input', { type: 'text', value: s.corsProxy || '', placeholder: 'https://你的代理/?url=', disabled: true })
     const proxyCard = el('div', { class: 'card' }, [
@@ -482,6 +602,7 @@ export const settingsPlugin = {
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
     page.append(themeCard)
     page.append(dataCard)
+    page.append(historyCard)
     page.append(proxyCard)
 
     // ---------- 保存栏 ----------
