@@ -1,4 +1,4 @@
-// 专业功能 · 行业研究：数据源目录 + 外部数据导入 + 指标库 + 可视化 + AI 洞察 + 报告导出。
+// 专业功能 · 行业研究：6 步向导（选行业→载入数据源→导入数据→指标可视化→AI洞察→导出报告）。
 // 重点：搜集官方/专业行业数据，做分析整理（非公司经营财务）。纯前端，数据存本机。
 import { el, clear, toast } from '../../core/ui.js'
 import { lineChart, barChart } from '../../core/charts.js'
@@ -59,6 +59,7 @@ const INDICATOR_PRESETS = {
 
 const CRED = ['高', '中', '低']
 const FREQS = ['日', '周', '月', '季', '年', '不定期']
+const STEP_LABELS = ['选行业', '载入数据源', '导入数据', '指标可视化', 'AI 洞察', '导出报告']
 
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) } catch { return null } }
 const save = (s) => localStorage.setItem(KEY, JSON.stringify(s))
@@ -104,46 +105,94 @@ export const industryResearchPlugin = {
 
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['行业研究']),
-      el('p', { class: 'sub' }, ['搜集官方/专业行业数据 → 导入整理 → 指标可视化 → AI 洞察 → 报告导出。数据存本机。'])
+      el('p', { class: 'sub' }, ['选行业 → 一键载入数据源 → 导入数据 → 指标可视化 → AI 洞察 → 导出报告。数据存本机。'])
     ])
 
-    let active = 'sources'
-    const tabChips = el('div', { class: 'chips' })
-    const panelWrap = el('div', {})
-    const TABS = [['sources', '数据源目录'], ['import', '数据导入'], ['indicators', '指标库'], ['report', '分析与报告']]
-    const syncTabs = () => { [...tabChips.children].forEach((c, i) => { c.className = 'chip' + (TABS[i][0] === active ? ' on' : '') }) }
-    TABS.forEach(([id, label]) => {
-      tabChips.append(el('span', { class: 'chip' + (id === active ? ' on' : ''), onclick: () => { active = id; syncTabs(); renderPanels() } }, [label]))
-    })
-    const renderPanels = () => {
-      clear(panelWrap)
-      if (active === 'sources') panelWrap.append(renderSources())
-      else if (active === 'import') panelWrap.append(renderImport())
-      else if (active === 'indicators') panelWrap.append(renderIndicators())
-      else panelWrap.append(renderReport())
+    // 向导上下文：自动带行业/数据集/指标/角度/洞察
+    const wiz = {
+      step: 1,
+      industry: (getSettings().industry && getSettings().industry[0]) || INDUSTRY_PRESETS[0],
+      datasetId: s.datasets.length ? s.datasets[0].id : '',
+      col: '',
+      chartKind: 'line',
+      angle: '综合',
+      insight: ''
+    }
+    const curDs = () => s.datasets.find((d) => d.id === wiz.datasetId)
+
+    const stepsBar = el('div', { class: 'wiz-steps' })
+    const stepBody = el('div', {})
+    const navBar = el('div', { class: 'wiz-nav' })
+
+    const renderStepsBar = () => {
+      clear(stepsBar)
+      STEP_LABELS.forEach((label, i) => {
+        const n = i + 1
+        const cls = 'wiz-step' + (n === wiz.step ? ' on' : '') + (n < wiz.step ? ' done' : '')
+        stepsBar.append(el('div', { class: cls, onclick: () => goto(n) }, [
+          el('span', { class: 'num' }, [n < wiz.step ? '✓' : String(n)]),
+          el('span', { class: 'lbl' }, [label])
+        ]))
+      })
+    }
+    const renderNav = () => {
+      clear(navBar)
+      const prev = el('button', { class: 'btn ghost', disabled: wiz.step === 1 }, ['← 上一步'])
+      prev.onclick = () => { if (wiz.step > 1) goto(wiz.step - 1) }
+      const next = el('button', { class: 'btn primary', disabled: wiz.step === STEP_LABELS.length }, ['下一步 →'])
+      next.onclick = () => { if (wiz.step < STEP_LABELS.length) goto(wiz.step + 1) }
+      navBar.append(prev, el('span', { class: 'muted' }, ['第 ' + wiz.step + ' / ' + STEP_LABELS.length + ' 步']), next)
+    }
+    const goto = (n) => { wiz.step = n; renderStepsBar(); renderStep(); renderNav() }
+
+    const renderStep = () => {
+      clear(stepBody)
+      if (wiz.step === 1) renderStep1()
+      else if (wiz.step === 2) renderStep2()
+      else if (wiz.step === 3) renderStep3()
+      else if (wiz.step === 4) renderStep4()
+      else if (wiz.step === 5) renderStep5()
+      else renderStep6()
     }
 
-    // ---------- 面板 1：数据源目录 ----------
-    const renderSources = () => {
+    // ---------- 步骤 1：选行业 ----------
+    const renderStep1 = () => {
+      const indSel = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === wiz.industry ? 'selected' : null }, [i])))
+      indSel.onchange = () => {
+        wiz.industry = indSel.value
+        // 若当前数据集所属行业与新选行业不同，提醒但不强制
+        if (curDs() && curDs().industry !== wiz.industry) {
+          toast('已切换行业为「' + wiz.industry + '」，后续数据源将按此行业载入', 'ok')
+        }
+      }
+      stepBody.append(el('div', { class: 'card' }, [
+        el('h3', {}, ['① 选择行业']),
+        el('p', { class: 'hint' }, ['选择你正在研究的行业，后续「数据源」「指标库」会按此行业自动匹配。也可在「设置」中维护常用行业。']),
+        el('div', { class: 'field', style: 'max-width:320px' }, [el('label', {}, ['所属行业']), indSel]),
+        el('div', { class: 'kv-table', style: 'margin-top:12px' }, [
+          el('div', { class: 'kv-h' }, [el('span', {}, ['本行业建议关注的指标（参考）'])]),
+          el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [
+            el('div', { class: 'chips' }, (INDICATOR_PRESETS[wiz.industry] || []).map((n) => el('span', { class: 'chip on' }, [n])))
+          ])
+        ]),
+        el('p', { class: 'hint', style: 'margin-top:12px' }, ['点击右下角「下一步」进入数据源载入。'])
+      ]))
+    }
+
+    // ---------- 步骤 2：载入数据源 ----------
+    const renderStep2 = () => {
       const list = el('div', { class: 'kv-table' })
       const drawList = () => {
         clear(list)
-        list.append(el('div', { class: 'kv-h' }, [
-          el('span', {}, ['名称']), el('span', {}, ['类别/频率']), el('span', {}, ['可信度']), el('span', {}, [''])
-        ]))
+        list.append(el('div', { class: 'kv-h' }, [el('span', {}, ['名称']), el('span', {}, ['类别/频率']), el('span', {}, ['可信度']), el('span', {}, [''])]))
         if (!s.sources.length) {
-          list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [
-            el('span', { class: 'muted' }, ['暂无数据源，可一键载入官方预设或手动添加'])
-          ]))
+          list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [el('span', { class: 'muted' }, ['暂无数据源，可一键载入行业源或手动添加'])]))
         }
         s.sources.forEach((src, idx) => {
           const del = el('button', { class: 'mini', title: '删除' }, ['✕'])
           del.onclick = () => { s.sources.splice(idx, 1); save(s); drawList() }
           list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:2fr 2fr 1fr 44px' }, [
-            el('div', {}, [
-              el('a', { href: src.url, target: '_blank', rel: 'noreferrer' }, [src.name]),
-              src.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [src.note]) : null
-            ]),
+            el('div', {}, [el('a', { href: src.url, target: '_blank', rel: 'noreferrer' }, [src.name]), src.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [src.note]) : null]),
             el('span', {}, [src.category + ' · ' + (src.freq || '—')]),
             el('span', {}, [src.credibility || '—']),
             del
@@ -151,6 +200,23 @@ export const industryResearchPlugin = {
         })
       }
       drawList()
+
+      const indSel = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === wiz.industry ? 'selected' : null }, [i])))
+      const indLoadBtn = el('button', { class: 'btn' }, ['一键载入行业数据源'])
+      indLoadBtn.onclick = () => {
+        wiz.industry = indSel.value
+        const list2 = (INDUSTRY_SOURCES[wiz.industry] || []).concat(GENERAL_SOURCES)
+        let added = 0
+        list2.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p, industry: wiz.industry }); added++ } })
+        save(s); drawList()
+        toast('已载入 ' + added + ' 个「' + wiz.industry + '」相关数据源', 'ok')
+      }
+      const genBtn = el('button', { class: 'btn ghost' }, ['载入通用官方源'])
+      genBtn.onclick = () => {
+        let added = 0
+        GENERAL_SOURCES.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p }); added++ } })
+        save(s); drawList(); toast('已载入 ' + added + ' 个通用官方数据源', 'ok')
+      }
 
       const nameI = el('input', { type: 'text', placeholder: '数据源名称' })
       const urlI = el('input', { type: 'url', placeholder: 'https://...' })
@@ -162,35 +228,15 @@ export const industryResearchPlugin = {
       addBtn.onclick = () => {
         if (!nameI.value.trim() || !urlI.value.trim()) { toast('请填写名称和链接', 'err'); return }
         s.sources.push({ id: uid(), name: nameI.value.trim(), url: urlI.value.trim(), category: catI.value.trim(), freq: freqI.value, credibility: credI.value, note: noteI.value.trim() })
-        save(s); drawList()
-        nameI.value = urlI.value = catI.value = noteI.value = ''
-        toast('已添加', 'ok')
-      }
-      const presetBtn = el('button', { class: 'btn ghost' }, ['载入通用官方源'])
-      presetBtn.onclick = () => {
-        let added = 0
-        GENERAL_SOURCES.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p }); added++ } })
-        save(s); drawList()
-        toast('已载入 ' + added + ' 个通用官方数据源', 'ok')
-      }
-      const userIndustry = (getSettings().industry && getSettings().industry[0]) || INDUSTRY_PRESETS[0]
-      const indSelSrc = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === userIndustry ? 'selected' : null }, [i])))
-      const indLoadBtn = el('button', { class: 'btn' }, ['一键载入行业数据源'])
-      indLoadBtn.onclick = () => {
-        const ind = indSelSrc.value
-        const list2 = (INDUSTRY_SOURCES[ind] || []).concat(GENERAL_SOURCES)
-        let added = 0
-        list2.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p, industry: ind }); added++ } })
-        save(s); drawList()
-        toast('已载入 ' + added + ' 个「' + ind + '」相关数据源', 'ok')
+        save(s); drawList(); nameI.value = urlI.value = catI.value = noteI.value = ''; toast('已添加', 'ok')
       }
 
-      return el('div', { class: 'card' }, [
-        el('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, [el('h3', {}, ['数据源目录']), presetBtn]),
-        el('p', { class: 'hint' }, ['选择行业后一键载入该行业专属的官方/专业数据源；浏览器受跨域限制无法直接抓取网页数据，请到对应站点下载后于「数据导入」粘贴或上传。']),
+      stepBody.append(el('div', { class: 'card' }, [
+        el('h3', {}, ['② 载入数据源（' + wiz.industry + '）']),
+        el('p', { class: 'hint' }, ['一键载入该行业的官方/专业数据源。浏览器受跨域限制无法直接抓取网页数据，请到对应站点下载后于「③ 导入数据」粘贴或上传。']),
         el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' }, [
-          el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSelSrc]),
-          indLoadBtn
+          el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSel]),
+          indLoadBtn, genBtn
         ]),
         list,
         el('h3', { style: 'margin-top:16px' }, ['添加数据源']),
@@ -205,11 +251,11 @@ export const industryResearchPlugin = {
         ]),
         el('div', { class: 'field' }, [el('label', {}, ['备注']), noteI]),
         addBtn
-      ])
+      ]))
     }
 
-    // ---------- 面板 2：数据导入 ----------
-    const renderImport = () => {
+    // ---------- 步骤 3：导入数据 ----------
+    const renderStep3 = () => {
       const ta = el('textarea', { rows: 6, placeholder: '粘贴 CSV（首行为列名）或 JSON 数组，例如：\n年份,市场规模(亿元),同比增速\n2021,1200,8.5\n2022,1310,9.2' })
       const fileI = el('input', { type: 'file', accept: '.csv,.json,.xlsx,.xls,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const preview = el('div', {})
@@ -231,12 +277,8 @@ export const industryResearchPlugin = {
             const cols = rowsRaw[0].map((c, i) => c.trim() || ('列' + (i + 1)))
             parsed = { columns: cols, rows: rowsRaw.slice(1).map((r) => { const o = {}; cols.forEach((c, i) => { o[c] = (r[i] || '').trim() }); return o }) }
           }
-          drawPreview()
-          toast('解析成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
-        } catch (e) {
-          parsed = null; clear(preview)
-          toast('解析失败：' + e.message, 'err')
-        }
+          drawPreview(); toast('解析成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
+        } catch (e) { parsed = null; clear(preview); toast('解析失败：' + e.message, 'err') }
       }
       const drawPreview = () => {
         clear(preview)
@@ -247,11 +289,7 @@ export const industryResearchPlugin = {
           tbl.append(el('div', { class: 'kv-r', style: 'grid-template-columns:repeat(' + parsed.columns.length + ',1fr)' },
             parsed.columns.map((c) => el('span', { style: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap' }, [r[c]]))))
         })
-        if (parsed.rows.length > 8) {
-          tbl.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [
-            el('span', { class: 'muted' }, ['… 仅预览前 8 行，共 ' + parsed.rows.length + ' 行'])
-          ]))
-        }
+        if (parsed.rows.length > 8) tbl.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [el('span', { class: 'muted' }, ['… 仅预览前 8 行，共 ' + parsed.rows.length + ' 行'])]))
         preview.append(el('label', {}, ['解析预览']), tbl)
       }
 
@@ -271,110 +309,68 @@ export const industryResearchPlugin = {
             if (!json.length) throw new Error('XLSX 第一个工作表无数据行')
             const cols = Object.keys(json[0])
             parsed = { columns: cols, rows: json.map((o) => { const r = {}; cols.forEach((c) => { r[c] = o[c] != null ? String(o[c]) : '' }); return r }) }
-            drawPreview()
-            toast('解析成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
+            drawPreview(); toast('解析成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
           } else {
             const txt = await f.text()
             ta.value = txt.slice(0, 5000)
             doParse(txt)
           }
-        } catch (e) {
-          parsed = null; clear(preview)
-          toast('解析失败：' + e.message, 'err')
-        }
+        } catch (e) { parsed = null; clear(preview); toast('解析失败：' + e.message, 'err') }
       }
 
       const nameI = el('input', { type: 'text', placeholder: '数据集名称，如 2021-2024 非遗文创规模' })
-      const indI = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i }, [i])))
+      const indI = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === wiz.industry ? 'selected' : null }, [i])))
       const saveBtn = el('button', { class: 'btn primary' }, ['保存为数据集'])
       saveBtn.onclick = () => {
         if (!parsed) { toast('请先解析数据', 'err'); return }
         if (!nameI.value.trim()) { toast('请填写数据集名称', 'err'); return }
-        s.datasets.push({ id: uid(), name: nameI.value.trim(), industry: indI.value, importedAt: new Date().toISOString().slice(0, 10), columns: parsed.columns, rows: parsed.rows, note: '' })
-        save(s); toast('已保存数据集', 'ok'); nameI.value = ''
+        const rec = { id: uid(), name: nameI.value.trim(), industry: indI.value, importedAt: new Date().toISOString().slice(0, 10), columns: parsed.columns, rows: parsed.rows, note: '' }
+        s.datasets.push(rec); save(s)
+        wiz.datasetId = rec.id; wiz.col = ''
+        toast('已保存数据集，可进入「④ 指标可视化」', 'ok'); nameI.value = ''
+        renderStepsBar()
       }
 
-      return el('div', { class: 'card' }, [
-        el('h3', {}, ['导入外部数据']),
-        el('p', { class: 'hint' }, ['从国家统计局/行业协会/上市公司公告等下载 CSV 或导出 JSON 后粘贴。复杂网站的反爬数据建议先导出再导入。']),
+      stepBody.append(el('div', { class: 'card' }, [
+        el('h3', {}, ['③ 导入数据']),
+        el('p', { class: 'hint' }, ['从国家统计局/行业协会/上市公司公告等下载 CSV 或导出 JSON 后粘贴；也支持上传 .xlsx。复杂网站的反爬数据建议先导出再导入。保存时自动带上「所属行业」作为数据元。']),
         ta,
         el('div', { class: 'row', style: 'gap:8px;margin:8px 0' }, [parseBtn, fileI]),
         preview,
         el('div', { class: 'grid cols-2', style: 'margin-top:12px' }, [
           el('div', { class: 'field' }, [el('label', {}, ['数据集名称']), nameI]),
-          el('div', { class: 'field' }, [el('label', {}, ['所属行业']), indI])
+          el('div', { class: 'field' }, [el('label', {}, ['所属行业（数据元）']), indI])
         ]),
         saveBtn
-      ])
+      ]))
     }
 
-    // ---------- 面板 3：指标库 ----------
-    const renderIndicators = () => {
-      const indSel = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i }, [i])))
-      const box = el('div', {})
-      const draw = () => {
-        clear(box)
-        const ind = indSel.value
-        const preset = INDICATOR_PRESETS[ind] || []
-        const custom = s.indicators.filter((x) => x.industry === ind).map((x) => x.name)
-        box.append(el('p', { class: 'hint' }, ['行业核心指标建议（预置，参考用）：']))
-        const grid = el('div', { class: 'chips' })
-        preset.concat(custom).forEach((n) => grid.append(el('span', { class: 'chip on' }, [n])))
-        box.append(grid)
-      }
-      indSel.onchange = draw; draw()
-
-      const addName = el('input', { type: 'text', placeholder: '自定义指标名' })
-      const addBtn = el('button', { class: 'btn' }, ['＋ 添加指标'])
-      addBtn.onclick = () => {
-        const n = addName.value.trim()
-        if (!n) { toast('请输入指标名', 'err'); return }
-        if (!s.indicators.some((x) => x.industry === indSel.value && x.name === n)) {
-          s.indicators.push({ industry: indSel.value, name: n }); save(s); draw()
-        }
-        addName.value = ''
-      }
-
-      return el('div', { class: 'card' }, [
-        el('h3', {}, ['指标库']),
-        el('p', { class: 'hint' }, ['不同行业关注的核心指标不同。预置为参考，可补充你实际追踪的指标。']),
-        el('div', { class: 'field' }, [el('label', {}, ['选择行业']), indSel]),
-        box,
-        el('div', { class: 'row', style: 'gap:8px;margin-top:12px' }, [addName, addBtn])
-      ])
-    }
-
-    // ---------- 面板 4：分析与报告 ----------
-    const renderReport = () => {
-      if (!s.datasets.length) {
-        return el('div', { class: 'card' }, [el('h3', {}, ['分析与报告']), el('p', { class: 'hint' }, ['请先在「数据导入」保存至少一个数据集。'])])
-      }
-
-      const dsSel = el('select', {}, s.datasets.map((d) => el('option', { value: d.id }, [d.name + '（' + d.industry + '）'])))
+    // ---------- 步骤 4：指标可视化 ----------
+    const renderStep4 = () => {
+      const dsSel = el('select', {}, s.datasets.length ? s.datasets.map((d) => el('option', { value: d.id, selected: d.id === wiz.datasetId ? 'selected' : null }, [d.name + '（' + d.industry + '）'])) : [el('option', { value: '' }, ['（暂无数据集，请先到③导入）'])])
       const numSel = el('select', {})
       const chartKind = el('select', {}, [el('option', { value: 'line' }, ['折线图']), el('option', { value: 'bar' }, ['柱状图'])])
-      const angleSel = el('select', {}, [
-        el('option', { value: '综合' }, ['综合洞察']),
-        el('option', { value: '政策影响' }, ['政策影响']),
-        el('option', { value: '市场规模' }, ['市场规模']),
-        el('option', { value: '竞争格局' }, ['竞争格局'])
-      ])
       const chartWrap = el('div', {})
-      const insightBox = el('div', { class: 'trans-output' })
-      let lastInsight = ''
-      let lastAngle = '综合'
 
       const refreshNum = () => {
         const ds = s.datasets.find((d) => d.id === dsSel.value)
+        wiz.datasetId = dsSel.value || ''
         clear(numSel)
-        numColsOf(ds).forEach((c) => numSel.append(el('option', { value: c }, [c])))
-        if (!numSel.options.length) numSel.append(el('option', { value: '' }, ['（无数值列）']))
+        if (!ds) { numSel.append(el('option', { value: '' }, ['（无数据集）'])); clear(chartWrap); return }
+        const cols = numColsOf(ds)
+        cols.forEach((c) => numSel.append(el('option', { value: c, selected: c === wiz.col ? 'selected' : null }, [c])))
+        if (!cols.length) numSel.append(el('option', { value: '' }, ['（无数值列）']))
+        // 若之前记录的列已失效则回落到首个
+        if (!cols.includes(wiz.col) && cols.length) wiz.col = cols[0]
         drawChart()
       }
       const drawChart = () => {
         const ds = s.datasets.find((d) => d.id === dsSel.value)
         const col = numSel.value
+        wiz.col = col
+        wiz.chartKind = chartKind.value
         clear(chartWrap)
+        if (!ds) { chartWrap.append(el('div', { class: 'muted' }, ['请先导入数据集'])); return }
         if (!col) { chartWrap.append(el('div', { class: 'muted' }, ['该数据集无数值列，无法绘图'])); return }
         const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
         if (chartKind.value === 'bar') {
@@ -390,17 +386,64 @@ export const industryResearchPlugin = {
       chartKind.onchange = drawChart
       refreshNum()
 
-      const aiBtn = el('button', { class: 'btn' }, ['✨ AI 分析洞察'])
+      // 指标库参考（本行业核心指标）
+      const indBox = el('div', {})
+      const drawInd = () => {
+        clear(indBox)
+        const preset = INDICATOR_PRESETS[wiz.industry] || []
+        const custom = s.indicators.filter((x) => x.industry === wiz.industry).map((x) => x.name)
+        indBox.append(el('p', { class: 'hint' }, ['「' + wiz.industry + '」核心指标建议（参考，可在分析中比照）：']))
+        const grid = el('div', { class: 'chips' })
+        preset.concat(custom).forEach((n) => grid.append(el('span', { class: 'chip on' }, [n])))
+        indBox.append(grid)
+      }
+      drawInd()
+      const addName = el('input', { type: 'text', placeholder: '补充自定义指标名' })
+      const addBtn = el('button', { class: 'btn ghost' }, ['＋ 添加指标'])
+      addBtn.onclick = () => {
+        const n = addName.value.trim()
+        if (!n) { toast('请输入指标名', 'err'); return }
+        if (!s.indicators.some((x) => x.industry === wiz.industry && x.name === n)) { s.indicators.push({ industry: wiz.industry, name: n }); save(s); drawInd() }
+        addName.value = ''
+      }
+
+      stepBody.append(el('div', { class: 'card' }, [
+        el('h3', {}, ['④ 指标可视化']),
+        el('p', { class: 'hint' }, ['选择数据集与数值指标，生成趋势/分布图。当前数据集：' + (curDs() ? curDs().name : '无')]),
+        el('div', { class: 'grid cols-3' }, [
+          el('div', { class: 'field' }, [el('label', {}, ['数据集']), dsSel]),
+          el('div', { class: 'field' }, [el('label', {}, ['数值指标']), numSel]),
+          el('div', { class: 'field' }, [el('label', {}, ['图表类型']), chartKind])
+        ]),
+        chartWrap,
+        el('div', { class: 'row', style: 'gap:8px;margin-top:12px;align-items:flex-end' }, [el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['补充本行业指标']), addName]), addBtn]),
+        indBox
+      ]))
+    }
+
+    // ---------- 步骤 5：AI 洞察 ----------
+    const renderStep5 = () => {
+      const angleSel = el('select', {}, [
+        el('option', { value: '综合', selected: wiz.angle === '综合' ? 'selected' : null }, ['综合洞察']),
+        el('option', { value: '政策影响', selected: wiz.angle === '政策影响' ? 'selected' : null }, ['政策影响']),
+        el('option', { value: '市场规模', selected: wiz.angle === '市场规模' ? 'selected' : null }, ['市场规模']),
+        el('option', { value: '竞争格局', selected: wiz.angle === '竞争格局' ? 'selected' : null }, ['竞争格局'])
+      ])
+      const insightBox = el('div', { class: 'trans-output' })
+      if (wiz.insight) insightBox.textContent = wiz.insight
+
+      const aiBtn = el('button', { class: 'btn primary' }, ['✨ 生成 AI 洞察'])
       aiBtn.onclick = async () => {
-        const ds = s.datasets.find((d) => d.id === dsSel.value)
-        const col = numSel.value
-        if (!col) { toast('该数据集无数值列', 'err'); return }
+        const ds = curDs()
+        if (!ds) { toast('请先在④选择数据集', 'err'); return }
+        const col = wiz.col
+        if (!col) { toast('请在④选择数值指标', 'err'); return }
         const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
         const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
         const head = ds.rows.slice(0, 6).map((r) => ds.columns.map((c) => c + '=' + r[c]).join('，')).join('\n')
         const srcText = s.sources.length ? s.sources.map((x) => x.name + '(' + x.url + ')').join('；') : '（未登记数据源）'
         const angle = angleSel.value
-        lastAngle = angle
+        wiz.angle = angle
         let angleReq = ''
         if (angle === '政策影响') angleReq = '本次聚焦于【政策影响】：请重点分析近年来相关政策/监管对该行业的影响方向与力度、政策红利与风险点，并给出合规与机会判断。'
         else if (angle === '市场规模') angleReq = '本次聚焦于【市场规模】：请重点分析市场规模总量、增速、渗透率与天花板，细分赛道规模及核心增长驱动力。'
@@ -426,7 +469,7 @@ export const industryResearchPlugin = {
             acc += t
             insightBox.textContent = acc
           } })
-          lastInsight = acc
+          wiz.insight = acc
           toast('分析完成', 'ok')
         } catch (e) {
           clear(insightBox)
@@ -434,17 +477,43 @@ export const industryResearchPlugin = {
         } finally { aiBtn.disabled = false }
       }
 
+      stepBody.append(el('div', { class: 'card' }, [
+        el('h3', {}, ['⑤ AI 洞察']),
+        el('p', { class: 'hint' }, ['基于「' + (curDs() ? curDs().name + '（' + curDs().industry + '）' : '未选数据集') + '」的「' + (wiz.col || '未选指标') + '」生成分析。选择分析角度，聚焦不同维度。']),
+        el('div', { class: 'field', style: 'max-width:280px;margin-bottom:10px' }, [el('label', {}, ['分析角度']), angleSel]),
+        aiBtn,
+        el('label', { style: 'display:block;margin:12px 0 4px' }, ['AI 分析洞察']),
+        insightBox
+      ]))
+    }
+
+    // ---------- 步骤 6：导出报告 ----------
+    const renderStep6 = () => {
+      const ds = curDs()
+      const col = wiz.col
+      const exportCard = el('div', { class: 'card' }, [
+        el('h3', {}, ['⑥ 导出报告']),
+        el('p', { class: 'hint' }, ['汇总数据集、指标、AI 洞察与数据来源，导出为 Markdown 或直接打印为 PDF。'])
+      ])
+
+      if (!ds || !col) {
+        exportCard.append(el('p', { class: 'err' }, ['尚未完成前序步骤：' + (!ds ? '请在④选择数据集；' : '') + (!col ? '请在④选择数值指标。' : '')]))
+        const backBtn = el('button', { class: 'btn' }, ['← 返回④指标可视化'])
+        backBtn.onclick = () => goto(4)
+        exportCard.append(backBtn)
+        stepBody.append(exportCard)
+        return
+      }
+
+      const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
       const mdBtn = el('button', { class: 'btn ghost' }, ['导出 Markdown'])
       mdBtn.onclick = () => {
-        const ds = s.datasets.find((d) => d.id === dsSel.value)
-        const col = numSel.value
-        const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
         const lines = []
         lines.push('# 行业研究报告')
         lines.push('')
         lines.push('- 数据集：' + ds.name)
         lines.push('- 所属行业：' + ds.industry)
-        lines.push('- 分析角度：' + lastAngle)
+        lines.push('- 分析角度：' + wiz.angle)
         lines.push('- 生成时间：' + new Date().toLocaleString())
         lines.push('')
         lines.push('## 一、数据概览')
@@ -452,10 +521,10 @@ export const industryResearchPlugin = {
         if (vals.length) lines.push('指标「' + col + '」：首个=' + vals[0] + '，末个=' + vals[vals.length - 1] + '，均值=' + (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2))
         lines.push('')
         lines.push('## 二、可视化')
-        lines.push('指标「' + col + '」趋势图见系统内「分析与报告」。')
+        lines.push('指标「' + col + '」趋势/分布图见系统内「行业研究 · ④指标可视化」。')
         lines.push('')
-        lines.push('## 三、AI 分析洞察')
-        lines.push(lastInsight || '（未生成，点击「AI 分析洞察」后导出）')
+        lines.push('## 三、AI 分析洞察（' + wiz.angle + '）')
+        lines.push(wiz.insight || '（未生成，回到⑤点击「生成 AI 洞察」后导出）')
         lines.push('')
         lines.push('## 四、数据来源')
         if (s.sources.length) s.sources.forEach((x) => lines.push('- ' + x.name + '：' + x.url))
@@ -467,15 +536,12 @@ export const industryResearchPlugin = {
       }
       const pdfBtn = el('button', { class: 'btn ghost' }, ['打印 / 导出 PDF'])
       pdfBtn.onclick = () => {
-        const ds = s.datasets.find((d) => d.id === dsSel.value)
-        const col = numSel.value
-        const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
         const L = []
         L.push('# 行业研究报告\n')
-        L.push('- 数据集：' + ds.name + ' ｜ 行业：' + ds.industry + ' ｜ 分析角度：' + lastAngle + ' ｜ ' + new Date().toLocaleString() + '\n')
+        L.push('- 数据集：' + ds.name + ' ｜ 行业：' + ds.industry + ' ｜ 分析角度：' + wiz.angle + ' ｜ ' + new Date().toLocaleString() + '\n')
         L.push('## 数据概览\n记录数：' + ds.rows.length + ' ｜ 字段：' + ds.columns.join('、') + '\n')
         if (vals.length) L.push('指标「' + col + '」：首个=' + vals[0] + '，末个=' + vals[vals.length - 1] + '\n')
-        L.push('\n## AI 分析洞察\n' + (lastInsight || '（未生成）') + '\n')
+        L.push('\n## AI 分析洞察（' + wiz.angle + '）\n' + (wiz.insight || '（未生成）') + '\n')
         L.push('\n## 数据来源\n')
         L.push(s.sources.length ? s.sources.map((x) => '- ' + x.name + '：' + x.url).join('\n') : '（未登记）')
         const html = '<pre style="font-family:-apple-system,sans-serif;white-space:pre-wrap;word-break:break-word;padding:32px;line-height:1.7">' + L.join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>'
@@ -484,23 +550,23 @@ export const industryResearchPlugin = {
         w.document.close()
       }
 
-      return el('div', { class: 'card' }, [
-        el('h3', {}, ['分析与报告']),
-        el('div', { class: 'grid cols-3' }, [
-          el('div', { class: 'field' }, [el('label', {}, ['数据集']), dsSel]),
-          el('div', { class: 'field' }, [el('label', {}, ['数值指标']), numSel]),
-          el('div', { class: 'field' }, [el('label', {}, ['图表类型']), chartKind])
-        ]),
-        el('div', { class: 'field', style: 'max-width:280px;margin-top:8px' }, [el('label', {}, ['分析角度']), angleSel]),
-        chartWrap,
-        el('div', { class: 'row', style: 'gap:8px;margin:12px 0' }, [aiBtn, mdBtn, pdfBtn]),
-        el('label', {}, ['AI 分析洞察']),
-        insightBox
-      ])
+      exportCard.append(el('div', { class: 'kv-table', style: 'margin-bottom:12px' }, [
+        el('div', { class: 'kv-h' }, [el('span', {}, ['报告概要'])]),
+        el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [
+          el('div', {}, [el('b', {}, ['数据集：']), ds.name + '（' + ds.industry + '）']),
+          el('div', {}, [el('b', {}, ['指标：']), col]),
+          el('div', {}, [el('b', {}, ['分析角度：']), wiz.angle]),
+          el('div', {}, [el('b', {}, ['AI 洞察：']), wiz.insight ? '已生成（' + wiz.insight.length + ' 字）' : '未生成'])
+        ])
+      ]))
+      exportCard.append(el('div', { class: 'row', style: 'gap:8px' }, [mdBtn, pdfBtn]))
+      stepBody.append(exportCard)
     }
 
-    renderPanels()
-    page.append(tabChips, panelWrap)
+    renderStepsBar()
+    renderStep()
+    renderNav()
+    page.append(stepsBar, stepBody, navBar)
     root.append(page)
   }
 }
