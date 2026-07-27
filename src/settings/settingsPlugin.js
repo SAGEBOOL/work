@@ -1,7 +1,7 @@
 // 设置中心：所有插件的公共底座。
 // 负责 API Key、默认模型、行业标签、数据源、主题、自定义模型，并持久化到 localStorage。
 import { el, clear, toast } from '../core/ui.js'
-import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS, logHistory } from '../core/store.js'
+import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS, logHistory, getHistory } from '../core/store.js'
 import { PROVIDERS, getProvider, callChat } from '../core/aiGateway.js'
 
 export const settingsPlugin = {
