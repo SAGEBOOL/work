@@ -1,18 +1,22 @@
 // 顶栏：显示当前默认 AI 供应商状态、主题切换、快捷设置入口。
 import { el, clear } from '../core/ui.js'
 import { getSettings, update } from '../core/store.js'
-import { PROVIDERS } from '../core/aiGateway.js'
+import { getProvider } from '../core/aiGateway.js'
 import { applyTheme } from '../core/ui.js'
 import { toggleNav } from './nav.js'
 
 export function renderTopbar(root, { navigate }) {
   clear(root)
   const s = getSettings()
-  const prov = PROVIDERS[s.defaultProvider]
-  const ready = !!s.apiKeys[s.defaultProvider]
+  const provider = getProvider(s.defaultProvider)
+  const ready = provider
+    ? (provider.isLocal
+      ? true
+      : (provider.isCustom ? !!provider.apiKey : !!s.apiKeys[provider.id]))
+    : false
 
   const status = el('span', { class: 'ai-status ' + (ready ? 'on' : 'off') }, [
-    ready ? '🟢 ' + (prov?.name || s.defaultProvider) + ' 已就绪' : '🔴 未配置默认 API Key'
+    ready ? '🟢 ' + (provider?.name || s.defaultProvider) + ' 已就绪' : '🔴 未配置默认 API Key'
   ])
 
   const themeBtn = el('button', {
