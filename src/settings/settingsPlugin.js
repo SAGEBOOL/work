@@ -60,7 +60,11 @@ export const settingsPlugin = {
     const provSelect = el('select', {
       onchange: (e) => {
         const pid = e.target.value
-        update((st) => { st.settings.defaultProvider = pid })
+        const p = getProvider(pid)
+        update((st) => {
+          st.settings.defaultProvider = pid
+          if (p?.isCustom) st.settings.defaultModel = p.model
+        })
         renderProviderArea(pid)
         renderModelField(pid)
         markSaved()
@@ -250,6 +254,7 @@ export const settingsPlugin = {
             const t = st.settings.customModels.find((x) => x.id === m.id)
             if (t) t.isDefault = true
             st.settings.defaultProvider = m.id
+            st.settings.defaultModel = m.model
           })
           buildProvOptions()
           renderProviderArea(m.id)
