@@ -1,8 +1,8 @@
 // 设置中心：所有插件的公共底座。
-// 负责 API Key、默认模型、行业标签、数据源、主题，并持久化到 localStorage。
+// 负责 API Key、默认模型、行业标签、数据源、主题、自定义模型，并持久化到 localStorage。
 import { el, clear, toast } from '../core/ui.js'
 import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS } from '../core/store.js'
-import { PROVIDERS, callChat } from '../core/aiGateway.js'
+import { PROVIDERS, getProvider, callChat } from '../core/aiGateway.js'
 
 export const settingsPlugin = {
   id: 'settings',
@@ -12,7 +12,7 @@ export const settingsPlugin = {
   mount(root) {
     const s = getSettings()
 
-    // 保存状态提示（定义在前，供各处理器调用；运行时 saveStatus 已初始化）
+    // 保存状态提示
     const markSaved = () => {
       saveStatus.className = 'save-status ok'
       saveStatus.textContent = '✓ 已保存 ' + new Date().toLocaleTimeString()
@@ -23,6 +23,36 @@ export const settingsPlugin = {
       el('p', { class: 'sub' }, ['API 密钥仅保存在本机浏览器，请求直接从浏览器发往对应厂商。换设备需重新填写。'])
     ])
 
+    // ---------- 通用：测试某个供应商 ----------
+    const testProvider = async (pid, alertEl, btnEl) => {
+      if (btnEl) btnEl.disabled = true
+      if (alertEl) {
+        alertEl.className = 'alert'
+        alertEl.textContent = '请求中…'
+      }
+      try {
+        const r = await callChat({ messages: [{ role: 'user', content: '回复两个字：正常' }], provider: pid, stream: false })
+        if (alertEl) {
+          alertEl.className = 'alert ok'
+          alertEl.textContent = '✓ 连通成功：' + (r || '').slice(0, 40)
+        }
+        toast('连通测试成功', 'ok')
+      } catch (err) {
+        const p = getProvider(pid)
+        const sentKey = p?.isCustom ? p.apiKey : (getSettings().apiKeys[pid] || '')
+        const mask = sentKey.length
+          ? (sentKey.slice(0, 4) + '…' + sentKey.slice(-4) + '（共 ' + sentKey.length + ' 字符）')
+          : '（空，未存储该供应商 Key）'
+        if (alertEl) {
+          alertEl.className = 'alert err'
+          alertEl.textContent = '✗ ' + err.message + ' ｜ 当前发送 Key：' + mask
+        }
+        toast('连通失败：' + err.message, 'err')
+      } finally {
+        if (btnEl) btnEl.disabled = false
+      }
+    }
+
     // ---------- 1. AI 供应商配置 ----------
     const providerArea = el('div', { class: 'provider-area' })
 
@@ -31,20 +61,30 @@ export const settingsPlugin = {
       onchange: (e) => {
         const pid = e.target.value
         update((st) => { st.settings.defaultProvider = pid })
-        // 刷新该供应商的配置表单与模型选项
         renderProviderArea(pid)
         renderModelField(pid)
         markSaved()
       }
-    }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name])))
-    provSelect.value = s.defaultProvider
+    })
+    const buildProvOptions = () => {
+      clear(provSelect)
+      const customs = getSettings().customModels || []
+      provSelect.append(el('optgroup', { label: '内置供应商' }, Object.values(PROVIDERS).map((p) => el('option', { value: p.id }, [p.name]))))
+      if (customs.length) {
+        provSelect.append(el('optgroup', { label: '自定义模型' }, customs.map((m) => el('option', { value: m.id }, [m.name + '（自定义）']))))
+      }
+      provSelect.value = getSettings().defaultProvider || Object.keys(PROVIDERS)[0]
+    }
 
-    // 默认模型区域（云厂商用下拉+自定义，Ollama 用文本输入）
+    // 默认模型区域
     const modelWrap = el('div', { class: 'model-wrap' })
     const renderModelField = (pid) => {
       clear(modelWrap)
-      const p = PROVIDERS[pid]
-      if (p.isLocal) {
+      const p = getProvider(pid)
+      if (!p) return
+      if (p.isCustom) {
+        modelWrap.append(el('input', { type: 'text', value: p.model || '', disabled: true, title: '在「自定义模型」卡片中修改' }))
+      } else if (p.isLocal) {
         const cfg = getSettings().providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
         const input = el('input', {
           type: 'text',
@@ -91,11 +131,20 @@ export const settingsPlugin = {
       }
     }
 
-    // 供应商配置表单：云厂商显示 Key，Ollama 显示本地地址+模型
+    // 供应商配置表单
     const renderProviderArea = (pid) => {
       clear(providerArea)
-      const p = PROVIDERS[pid]
-      if (p.isLocal) {
+      const p = getProvider(pid)
+      if (!p) return
+      if (p.isCustom) {
+        const m = (getSettings().customModels || []).find((x) => x.id === pid)
+        if (!m) return
+        providerArea.append(
+          el('div', { class: 'alert' }, [
+            '当前默认供应商为自定义模型「' + m.name + '」。可在下方「自定义模型」卡片中修改其配置。'
+          ])
+        )
+      } else if (p.isLocal) {
         const cfg = s.providerConfig?.ollama || { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
         const baseInput = el('input', {
           type: 'text',
@@ -138,29 +187,10 @@ export const settingsPlugin = {
     // 测试当前默认供应商
     const testBtn = el('button', { class: 'btn ghost' }, ['测试当前供应商连通性'])
     const testAlert = el('div', {})
-    testBtn.onclick = async () => {
-      testBtn.disabled = true
-      testAlert.className = 'alert'
-      testAlert.textContent = '请求中…'
-      try {
-        const r = await callChat({ messages: [{ role: 'user', content: '回复两个字：正常' }], stream: false })
-        testAlert.className = 'alert ok'
-        testAlert.textContent = '✓ 连通成功：' + (r || '').slice(0, 40)
-        toast('连通测试成功', 'ok')
-      } catch (err) {
-        const sentKey = getSettings().apiKeys[s.defaultProvider] || ''
-        const mask = sentKey.length
-          ? (sentKey.slice(0, 4) + '…' + sentKey.slice(-4) + '（共 ' + sentKey.length + ' 字符）')
-          : '（空，未存储该供应商 Key）'
-        testAlert.className = 'alert err'
-        testAlert.textContent = '✗ ' + err.message + ' ｜ 当前发送 Key：' + mask
-        toast('连通失败：' + err.message, 'err')
-      } finally {
-        testBtn.disabled = false
-      }
-    }
+    testBtn.onclick = () => testProvider(getSettings().defaultProvider, testAlert, testBtn)
 
     // 初始渲染
+    buildProvOptions()
     renderProviderArea(s.defaultProvider)
     renderModelField(s.defaultProvider)
 
@@ -172,6 +202,113 @@ export const settingsPlugin = {
       testBtn, testAlert,
       el('p', { class: 'hint' }, ['各插件可单独覆盖，不填则使用此处默认。'])
     ])
+
+    // ---------- 2. 自定义模型 ----------
+    const customModelsList = el('div', { class: 'custom-models' })
+    const renderCustomModels = () => {
+      clear(customModelsList)
+      const models = getSettings().customModels || []
+      if (!models.length) {
+        customModelsList.append(el('div', { class: 'muted', style: 'padding:8px 0' }, ['暂无自定义模型，点击下方按钮添加。']))
+      }
+      models.forEach((m) => {
+        const row = el('div', { class: 'custom-model-row' })
+        const nameInput = el('input', {
+          type: 'text', value: m.name, placeholder: '显示名称',
+          oninput: (e) => {
+            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.name = e.target.value.trim() })
+            buildProvOptions()
+            markSaved()
+          }
+        })
+        const modelInput = el('input', {
+          type: 'text', value: m.model, placeholder: '模型 ID，如 gpt-4o',
+          oninput: (e) => {
+            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.model = e.target.value.trim() })
+            if (m.id === getSettings().defaultProvider) renderModelField(m.id)
+            markSaved()
+          }
+        })
+        const baseInput = el('input', {
+          type: 'text', value: m.baseUrl, placeholder: 'https://api.example.com/v1',
+          oninput: (e) => {
+            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.baseUrl = e.target.value.trim().replace(/\/$/, '') })
+            markSaved()
+          }
+        })
+        const keyInput = el('input', {
+          type: 'password', value: m.apiKey, placeholder: 'API Key',
+          oninput: (e) => {
+            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.apiKey = e.target.value.trim() })
+            markSaved()
+          }
+        })
+        const defaultBtn = el('button', { class: 'btn ' + (m.isDefault ? 'primary' : 'ghost') }, [m.isDefault ? '默认' : '设为默认'])
+        defaultBtn.onclick = () => {
+          update((st) => {
+            st.customModels.forEach((x) => { x.isDefault = false })
+            const t = st.customModels.find((x) => x.id === m.id)
+            if (t) t.isDefault = true
+            st.settings.defaultProvider = m.id
+          })
+          buildProvOptions()
+          renderProviderArea(m.id)
+          renderModelField(m.id)
+          renderCustomModels()
+          markSaved()
+        }
+        const delBtn = el('button', { class: 'btn ghost' }, ['删除'])
+        delBtn.onclick = () => {
+          if (!confirm('确认删除自定义模型「' + m.name + '」？')) return
+          update((st) => {
+            st.customModels = st.customModels.filter((x) => x.id !== m.id)
+            if (st.settings.defaultProvider === m.id) {
+              st.settings.defaultProvider = 'deepseek'
+              st.settings.defaultModel = PROVIDERS.deepseek.models[0]
+            }
+          })
+          buildProvOptions()
+          renderProviderArea(getSettings().defaultProvider)
+          renderModelField(getSettings().defaultProvider)
+          renderCustomModels()
+          markSaved()
+        }
+        const testAlertItem = el('div', {})
+        const testItemBtn = el('button', { class: 'btn ghost' }, ['测试'])
+        testItemBtn.onclick = () => testProvider(m.id, testAlertItem, testItemBtn)
+        row.append(
+          el('div', { class: 'row' }, [
+            el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['名称']), nameInput]),
+            el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['模型 ID']), modelInput]),
+            el('div', { class: 'field', style: 'flex:2' }, [el('label', {}, ['Base URL']), baseInput])
+          ]),
+          el('div', { class: 'row', style: 'margin-top:8px' }, [
+            el('div', { class: 'field', style: 'flex:2' }, [el('label', {}, ['API Key']), keyInput]),
+            el('div', { class: 'row', style: 'gap:8px;align-items:flex-end' }, [defaultBtn, testItemBtn, delBtn])
+          ]),
+          testAlertItem
+        )
+        customModelsList.append(row)
+      })
+    }
+    const addCustomBtn = el('button', { class: 'btn' }, ['＋ 添加自定义模型'])
+    addCustomBtn.onclick = () => {
+      const id = 'custom-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
+      update((st) => {
+        st.customModels = st.customModels || []
+        st.customModels.push({ id, name: '自定义模型', model: '', baseUrl: '', apiKey: '', isDefault: false })
+      })
+      buildProvOptions()
+      renderCustomModels()
+      markSaved()
+    }
+    const customCard = el('div', { class: 'card' }, [
+      el('h3', {}, ['自定义模型']),
+      el('p', { class: 'hint' }, ['配置其他 OpenAI 兼容的 API 服务。填写后会在上方「默认 AI 供应商」中出现。']),
+      customModelsList,
+      addCustomBtn
+    ])
+    renderCustomModels()
 
     // ---------- 3. 行业标签 ----------
     const chipWrap = el('div', { class: 'chips' })
@@ -327,6 +464,7 @@ export const settingsPlugin = {
     refreshList()
 
     page.append(apiCard)
+    page.append(customCard)
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
     page.append(themeCard)
     page.append(dataCard)
@@ -334,7 +472,6 @@ export const settingsPlugin = {
     // ---------- 保存栏 ----------
     const saveStatus = el('span', { class: 'save-status' }, ['● 修改自动保存已开启'])
     const saveBtn = el('button', { class: 'btn primary' }, ['💾 保存设置'])
-    // 任何设置变更都更新状态提示（行业/数据源/主题等）
     saveBtn.onclick = () => {
       update((st) => { /* 强制把当前内存状态写入 localStorage */ })
       markSaved()
