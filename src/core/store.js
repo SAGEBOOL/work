@@ -25,6 +25,7 @@ const defaultState = {
     customModels: [],                             // [{ id, name, model, baseUrl, apiKey, isDefault }]
     industry: ['建筑规划', '非遗传创'],
     dataSources: { local: true, web: false, ima: false, tencentDocs: false },
+    corsProxy: 'https://api.allorigins.win/raw?url=', // 数据自动抓取用的 CORS 代理前缀
     theme: 'light'
   }
 }
