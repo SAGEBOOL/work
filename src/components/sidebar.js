@@ -111,8 +111,8 @@ export function renderSidebar(root, { navigate }) {
   clear(root)
   root.append(
     el('div', { class: 'brand' }, [
-      el('span', { class: 'logo' }, ['🛠️']),
-      el('span', {}, ['一人公司工作中台'])
+      el('span', { class: 'logo' }, ['🏢']),
+      el('span', {}, ['DSArt·WORK'])
     ])
   )
 
