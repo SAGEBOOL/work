@@ -517,11 +517,20 @@ body.nav-open { overflow: hidden; }
 .wiz-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
 .wiz-nav .muted { flex: 1; text-align: center; }
 
+/* 行业研究·步骤③ 两路来源分段切换 */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; margin: 4px 0 12px; }
+.seg-btn { border: 0; background: var(--panel); color: var(--text-2); padding: 9px 16px; font-size: 14px; cursor: pointer; transition: background .15s, color .15s; }
+.seg-btn + .seg-btn { border-left: 1px solid var(--border); }
+.seg-btn.on { background: var(--primary); color: #fff; font-weight: 600; }
+.seg-btn:hover:not(.on) { background: var(--primary-soft); }
+
 @media (max-width: 768px) {
   .wiz-step { min-width: 60px; padding: 8px 4px; }
   .wiz-step .lbl { font-size: 11px; }
   .wiz-nav { flex-wrap: wrap; }
   .wiz-nav .muted { order: -1; flex-basis: 100%; margin-bottom: 6px; }
+  .seg { width: 100%; }
+  .seg-btn { flex: 1; padding: 10px 8px; font-size: 13px; }
 }
 
 
