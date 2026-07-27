@@ -1,7 +1,7 @@
 // 概览：读取设置，展示中台当前状态与快捷入口。验证插件可读取全局状态。
 import { el } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
-import { configuredProviders, PROVIDERS } from '../../core/aiGateway.js'
+import { configuredProviders, getProvider } from '../../core/aiGateway.js'
 import { allPlugins } from '../../core/pluginManager.js'
 import { navigate } from '../../core/router.js'
 
@@ -13,8 +13,10 @@ export const overviewPlugin = {
   mount(root) {
     const s = getSettings()
     const aiReady = configuredProviders().length
-    const defaultProv = PROVIDERS[s.defaultProvider]
-    const defaultOk = !!s.apiKeys[s.defaultProvider]
+    const defaultProv = getProvider(s.defaultProvider)
+    const defaultOk = defaultProv && (defaultProv.isLocal
+      ? true
+      : (defaultProv.isCustom ? !!defaultProv.apiKey : !!s.apiKeys[defaultProv.id]))
     const funcCount = allPlugins().filter((p) => p.group !== '概览' && p.group !== '设置').length
     const dataOn = Object.entries(s.dataSources).filter(([, v]) => v).map(([k]) => k)
 
@@ -44,7 +46,7 @@ export const overviewPlugin = {
         el('h3', {}, ['AI 状态']),
         el('p', { class: 'muted' }, [
           defaultOk
-            ? '默认模型：' + defaultProv.name + ' / ' + s.defaultModel + '（已就绪）'
+            ? '默认模型：' + defaultProv.name + ' / ' + (defaultProv.isCustom ? defaultProv.model : s.defaultModel) + '（已就绪）'
             : '默认厂商 ' + (defaultProv?.name || s.defaultProvider) + ' 尚未配置 Key，请到「设置」填写。'
         ])
       ]),
