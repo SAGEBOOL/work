@@ -148,8 +148,12 @@ export const settingsPlugin = {
         testAlert.textContent = '✓ 连通成功：' + (r || '').slice(0, 40)
         toast('连通测试成功', 'ok')
       } catch (err) {
+        const sentKey = getSettings().apiKeys[s.defaultProvider] || ''
+        const mask = sentKey.length
+          ? (sentKey.slice(0, 4) + '…' + sentKey.slice(-4) + '（共 ' + sentKey.length + ' 字符）')
+          : '（空，未存储该供应商 Key）'
         testAlert.className = 'alert err'
-        testAlert.textContent = '✗ ' + err.message
+        testAlert.textContent = '✗ ' + err.message + ' ｜ 当前发送 Key：' + mask
         toast('连通失败：' + err.message, 'err')
       } finally {
         testBtn.disabled = false
