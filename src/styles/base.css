@@ -493,4 +493,35 @@ body.nav-open { overflow: hidden; }
   .brand .logo { font-size: 18px; }
 }
 
+/* ===== 行业研究 · 6 步向导 ===== */
+.wiz-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 20px; }
+.wiz-step {
+  flex: 1; min-width: 78px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 6px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2); cursor: pointer; transition: .15s;
+}
+.wiz-step:hover { border-color: var(--primary); }
+.wiz-step .num {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; background: var(--border); color: var(--text-2);
+}
+.wiz-step .lbl { font-size: 12px; color: var(--text-3); text-align: center; line-height: 1.2; }
+.wiz-step.on { border-color: var(--primary); background: var(--primary-soft); }
+.wiz-step.on .num { background: var(--primary); color: #fff; }
+.wiz-step.on .lbl { color: var(--text); font-weight: 600; }
+.wiz-step.done .num { background: var(--ok); color: #fff; }
+.wiz-step.done .lbl { color: var(--text-2); }
+
+.wiz-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--border); }
+.wiz-nav .muted { flex: 1; text-align: center; }
+
+@media (max-width: 768px) {
+  .wiz-step { min-width: 60px; padding: 8px 4px; }
+  .wiz-step .lbl { font-size: 11px; }
+  .wiz-nav { flex-wrap: wrap; }
+  .wiz-nav .muted { order: -1; flex-basis: 100%; margin-bottom: 6px; }
+}
+
 
