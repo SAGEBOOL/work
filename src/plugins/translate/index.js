@@ -2,7 +2,7 @@
 // 源语言支持「自动检测」，目标语言支持「中文」。提示词根据设置中心的行业标签自动调整。
 import { el, clear, toast } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
-import { callChat, PROVIDERS } from '../../core/aiGateway.js'
+import { callChat, getProvider } from '../../core/aiGateway.js'
 
 const SOURCES = ['自动检测', '中文', '英语', '日语', '韩语', '法语', '德语', '西班牙语', '俄语']
 const TARGETS = ['中文', '英语', '日语', '韩语', '法语', '德语', '西班牙语', '俄语']
@@ -41,7 +41,16 @@ export const translatePlugin = {
       if (!text) { alert.className = 'alert err'; alert.textContent = '请先输入文本'; return }
       // 始终读取最新设置，避免设置页改动后本页快照过期
       const st = getSettings()
-      if (!st.apiKeys[st.defaultProvider]) {
+      const provider = getProvider(st.defaultProvider)
+      if (!provider) {
+        alert.className = 'alert err'
+        alert.textContent = '未知默认供应商，请到「设置」检查。'
+        return
+      }
+      const hasKey = provider.isLocal
+        ? true
+        : (provider.isCustom ? !!provider.apiKey : !!st.apiKeys[provider.id])
+      if (!hasKey) {
         alert.className = 'alert err'
         alert.textContent = '未配置默认 AI Key，请到「设置」填写后重试。'
         return
@@ -91,11 +100,13 @@ export const translatePlugin = {
       }
     }
 
-    const prov = PROVIDERS[s.defaultProvider]
-    const modelName = prov?.isLocal
+    const provider = getProvider(s.defaultProvider)
+    const modelName = provider?.isLocal
       ? (s.providerConfig?.ollama?.model || '本地模型')
-      : (s.defaultModel || s.defaultProvider)
-    const provName = (prov?.name || s.defaultProvider) + ' · ' + modelName
+      : (provider?.isCustom
+        ? (provider.model || s.defaultProvider)
+        : (s.defaultModel || s.defaultProvider))
+    const provName = (provider?.name || s.defaultProvider) + ' · ' + modelName
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['AI 翻译']),
       el('p', { class: 'sub' }, ['示范「AI 网关 + 技能包」模式 · 当前模型：' + provName]),
