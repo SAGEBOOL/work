@@ -255,7 +255,7 @@ export const industryResearchPlugin = {
 
       stepBody.append(el('div', { class: 'card' }, [
         el('h3', {}, ['② 载入数据源（' + wiz.industry + '）']),
-        el('p', { class: 'hint' }, ['一键载入该行业的官方/专业数据源。第③步「从第②步数据源录入」可经 CORS 代理尝试自动抓取网页表格；若代理不可用或站点为 JS 动态渲染，则请到对应站点下载后于「③ 导入数据」粘贴或上传。']),
+        el('p', { class: 'hint' }, ['一键载入该行业的官方/专业数据源。第③步「从第②步数据源录入」可通过搜索引擎查找该来源的具体数据页，找到后手动复制粘贴到文本框解析；也可直接下载文件后在「导入文件」模式上传。']),
         el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' }, [
           el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSel]),
           indLoadBtn, genBtn
@@ -382,48 +382,31 @@ export const industryResearchPlugin = {
       // 模式切换
       const fileTab = el('button', { class: 'seg-btn' }, ['📁 导入文件'])
       const srcTab = el('button', { class: 'seg-btn' }, ['🔗 从第②步数据源录入'])
-      const proxyI = el('input', { type: 'text', placeholder: 'CORS 代理前缀（留空用设置里的）', value: getSettings().corsProxy || '' })
-      const fetchBtn = el('button', { class: 'btn' }, ['🤖 尝试自动抓取'])
-      const fetchStatus = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, ['经 CORS 代理拉取所选源的网页，解析其中的 <table> 表格。若站点为 JS 动态渲染或代理不可用则会失败，此时请改用手动粘贴/上传。'])
+
+      const searchBtn = el('button', { class: 'btn ghost' }, ['🔍 搜索此数据源'])
+      const searchTip = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, ['选择一个数据源后，点击「搜索此数据源」将在新标签打开搜索引擎，帮你找到该来源上的具体数据页。找到数据后请复制表格/文本，手动粘贴到下方文本框解析。'])
 
       const srcRow = el('div', { class: 'field', style: 'display:none' }, [
         el('label', {}, ['选择并引用数据源']),
-        el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [srcSel, srcLink]),
-        el('div', { class: 'field', style: 'margin-top:8px' }, [el('label', {}, ['CORS 代理前缀（可选，留空用设置里的）']), proxyI]),
-        fetchBtn,
-        fetchStatus,
-        el('div', { class: 'muted', style: 'font-size:12px' }, ['选择一个数据源后点「尝试自动抓取」：成功会自动解析表格并填好数据集名称，保存时关联此来源；失败可改用手动粘贴/上传。'])
+        el('div', { class: 'row', style: 'gap:8px;align-items:center;flex-wrap:wrap' }, [srcSel, srcLink, el('button', { class: 'mini', title: '复制链接', onclick: () => { const src = s.sources.find((d) => d.id === srcSel.value); if (!src) return; navigator.clipboard.writeText(src.url).then(() => toast('已复制链接', 'ok')).catch(() => toast('复制失败，请手动复制', 'err')) } }, ['复制链接'])]),
+        searchBtn,
+        searchTip,
+        el('div', { class: 'muted', style: 'font-size:12px' }, ['找到目标数据后，复制其中的表格或 CSV/JSON 内容，粘贴到下方文本框，点击「解析数据」即可。'])
       ])
 
-      fetchBtn.onclick = async () => {
+      searchBtn.onclick = () => {
         const src = s.sources.find((d) => d.id === srcSel.value)
         if (!src) { toast('请先选择一个数据源', 'err'); return }
-        const proxy = (proxyI.value.trim() || getSettings().corsProxy || '').trim()
-        if (!proxy) { toast('请填写 CORS 代理地址（设置→数据抓取代理，或上方临时填）', 'err'); return }
-        fetchBtn.disabled = true; fetchBtn.textContent = '⏳ 抓取中…'
-        try {
-          const target = proxy.includes('=') ? proxy + encodeURIComponent(src.url) : (proxy.replace(/\/?$/, '/') + src.url)
-          const resp = await fetch(target)
-          if (!resp.ok) throw new Error('HTTP ' + resp.status)
-          const html = await resp.text()
-          const doc = new DOMParser().parseFromString(html, 'text/html')
-          const tables = Array.from(doc.querySelectorAll('table'))
-          if (!tables.length) throw new Error('页面未找到 <table> 表格（可能是 JS 动态渲染站点）')
-          let best = tables[0], bestN = 0
-          tables.forEach((t) => { const n = t.querySelectorAll('tr').length; if (n > bestN) { bestN = n; best = t } })
-          const result = parseTable(best)
-          if (!result || result.rows.length < 1) throw new Error('表格解析为空')
-          parsed = result
-          if (!nameI.value.trim()) nameI.value = src.name + ' · ' + new Date().toISOString().slice(0, 10)
-          drawPreview()
-          toast('自动抓取成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
-        } catch (e) {
-          parsed = null; clear(preview)
-          toast('自动抓取失败：' + e.message + '（可改用手动粘贴/上传）', 'err')
-        } finally {
-          fetchBtn.disabled = false; fetchBtn.textContent = '🤖 尝试自动抓取'
+        const q = encodeURIComponent(src.name + ' ' + wiz.industry + ' 数据')
+        const engines = {
+          bing: 'https://www.bing.com/search?q=' + q,
+          google: 'https://www.google.com/search?q=' + q,
+          baidu: 'https://www.baidu.com/s?wd=' + q
         }
+        // 优先 Bing（国内可访问且稳定），失败由用户自行选择
+        window.open(engines.bing, '_blank', 'noopener,noreferrer')
       }
+
       const fileRow = el('div', { class: 'row', style: 'gap:8px;margin:8px 0' }, [parseBtn, fileI])
       const setMode = (m) => {
         mode = m
@@ -438,7 +421,7 @@ export const industryResearchPlugin = {
 
       stepBody.append(el('div', { class: 'card' }, [
         el('h3', {}, ['③ 导入数据']),
-        el('p', { class: 'hint' }, ['数据依据有两种途径，任选其一即可：①上传/粘贴文件（CSV·JSON·xlsx）；②从第②步已载入的官方/专业数据源检索并引用——可点「尝试自动抓取」经 CORS 代理拉取网页表格，失败则改用手动粘贴/上传。保存时自动带上「所属行业」作为数据元。']),
+        el('p', { class: 'hint' }, ['数据依据有两种途径，任选其一即可：①上传/粘贴文件（CSV·JSON·xlsx）；②从第②步已载入的官方/专业数据源中搜索并引用——点击「搜索此数据源」在搜索引擎中查找该来源的具体数据，找到后手动复制粘贴到下方解析。保存时自动带上「所属行业」作为数据元。']),
         el('div', { class: 'seg' }, [fileTab, srcTab]),
         srcRow,
         ta,
