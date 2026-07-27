@@ -216,7 +216,7 @@ export const settingsPlugin = {
         const nameInput = el('input', {
           type: 'text', value: m.name, placeholder: '显示名称',
           oninput: (e) => {
-            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.name = e.target.value.trim() })
+            update((st) => { const t = st.settings.customModels.find((x) => x.id === m.id); if (t) t.name = e.target.value.trim() })
             buildProvOptions()
             markSaved()
           }
@@ -224,7 +224,7 @@ export const settingsPlugin = {
         const modelInput = el('input', {
           type: 'text', value: m.model, placeholder: '模型 ID，如 gpt-4o',
           oninput: (e) => {
-            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.model = e.target.value.trim() })
+            update((st) => { const t = st.settings.customModels.find((x) => x.id === m.id); if (t) t.model = e.target.value.trim() })
             if (m.id === getSettings().defaultProvider) renderModelField(m.id)
             markSaved()
           }
@@ -232,22 +232,22 @@ export const settingsPlugin = {
         const baseInput = el('input', {
           type: 'text', value: m.baseUrl, placeholder: 'https://api.example.com/v1',
           oninput: (e) => {
-            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.baseUrl = e.target.value.trim().replace(/\/$/, '') })
+            update((st) => { const t = st.settings.customModels.find((x) => x.id === m.id); if (t) t.baseUrl = e.target.value.trim().replace(/\/$/, '') })
             markSaved()
           }
         })
         const keyInput = el('input', {
           type: 'password', value: m.apiKey, placeholder: 'API Key',
           oninput: (e) => {
-            update((st) => { const t = st.customModels.find((x) => x.id === m.id); if (t) t.apiKey = e.target.value.trim() })
+            update((st) => { const t = st.settings.customModels.find((x) => x.id === m.id); if (t) t.apiKey = e.target.value.trim() })
             markSaved()
           }
         })
         const defaultBtn = el('button', { class: 'btn ' + (m.isDefault ? 'primary' : 'ghost') }, [m.isDefault ? '默认' : '设为默认'])
         defaultBtn.onclick = () => {
           update((st) => {
-            st.customModels.forEach((x) => { x.isDefault = false })
-            const t = st.customModels.find((x) => x.id === m.id)
+            st.settings.customModels.forEach((x) => { x.isDefault = false })
+            const t = st.settings.customModels.find((x) => x.id === m.id)
             if (t) t.isDefault = true
             st.settings.defaultProvider = m.id
           })
@@ -261,7 +261,7 @@ export const settingsPlugin = {
         delBtn.onclick = () => {
           if (!confirm('确认删除自定义模型「' + m.name + '」？')) return
           update((st) => {
-            st.customModels = st.customModels.filter((x) => x.id !== m.id)
+            st.settings.customModels = st.settings.customModels.filter((x) => x.id !== m.id)
             if (st.settings.defaultProvider === m.id) {
               st.settings.defaultProvider = 'deepseek'
               st.settings.defaultModel = PROVIDERS.deepseek.models[0]
@@ -295,8 +295,8 @@ export const settingsPlugin = {
     addCustomBtn.onclick = () => {
       const id = 'custom-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
       update((st) => {
-        st.customModels = st.customModels || []
-        st.customModels.push({ id, name: '自定义模型', model: '', baseUrl: '', apiKey: '', isDefault: false })
+        st.settings.customModels = st.settings.customModels || []
+        st.settings.customModels.push({ id, name: '自定义模型', model: '', baseUrl: '', apiKey: '', isDefault: false })
       })
       buildProvOptions()
       renderCustomModels()
