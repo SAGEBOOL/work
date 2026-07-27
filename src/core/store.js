@@ -1,10 +1,9 @@
 // 全局状态：设置持久化到 localStorage。所有插件只读这里，写也只走这里。
 const STORAGE_KEY = 'opwb:state:v1'
 
-// 行业预设（可在设置中心追加自定义）
+// 行业预设（可在设置中心追加自定义）。与行业研究模块的指标/数据源模板对应。
 export const INDUSTRY_PRESETS = [
-  '建筑规划', '教育创意', '非遗传创', '研学运营',
-  '小说创作', '写作工具', '数据分析', '通用'
+  '建筑规划', '非遗传创', '研学', '自媒体', '通用'
 ]
 
 export const DATA_SOURCE_PRESETS = [
