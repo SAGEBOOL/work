@@ -72,10 +72,10 @@ export function getProvider(id) {
   return {
     id: custom.id,
     name: custom.name || custom.id,
-    base: custom.baseUrl.replace(/\/$/, ''),
+    base: (custom.baseUrl || '').replace(/\/$/, ''),
     model: custom.model,
     apiKey: custom.apiKey,
-    doc: custom.baseUrl,
+    doc: custom.baseUrl || '',
     isCustom: true,
     browserOk: true
   }
