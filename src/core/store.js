@@ -64,3 +64,18 @@ export function getState() { return state }
 export function getSettings() { return state.settings }
 export function update(fn) { fn(state); persist(); listeners.forEach((l) => l(state)) }
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }
+
+// ---------- 操作日志（历史记录） ----------
+const HISTORY_KEY = 'opwb:history:v1'
+const HISTORY_MAX = 300
+export function logHistory(action, detail) {
+  try {
+    const arr = getHistory()
+    arr.push({ t: Date.now(), action, detail: detail || '' })
+    while (arr.length > HISTORY_MAX) arr.shift()
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(arr))
+  } catch { /* 存储不可用时静默 */ }
+}
+export function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
+}
