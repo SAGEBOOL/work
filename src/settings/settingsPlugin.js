@@ -469,17 +469,13 @@ export const settingsPlugin = {
     refreshList()
 
     // ---------- 数据抓取代理（CORS Proxy） ----------
-    const proxyI = el('input', { type: 'text', value: s.corsProxy || '', placeholder: 'https://你的代理/?url=' })
+    const proxyI = el('input', { type: 'text', value: s.corsProxy || '', placeholder: 'https://你的代理/?url=', disabled: true })
     const proxyCard = el('div', { class: 'card' }, [
       el('h3', {}, ['数据抓取代理（CORS Proxy）']),
-      el('p', { class: 'hint' }, ['行业研究「③ 导入数据 · 从第②步数据源录入」可经此代理自动抓取网页表格。公共代理（如 allorigins）在部分网络下可能不稳，北京网络建议自备可用代理。代理需以 ?url= 或路径前缀形式接收目标地址。']),
-      el('div', { class: 'field' }, [el('label', {}, ['代理地址前缀']), proxyI]),
-      el('button', { class: 'btn ghost' }, ['保存代理地址'])
+      el('p', { class: 'hint' }, ['当前行业研究「③ 导入数据」已改为搜索引擎查找方式，不再使用 CORS 代理抓取网页，避免被屏蔽。此配置项暂时保留，供后续可能的手工代理场景使用，目前不生效。']),
+      el('div', { class: 'field' }, [el('label', {}, ['代理地址前缀（当前未生效）']), proxyI]),
+      el('button', { class: 'btn ghost', disabled: true }, ['保存代理地址'])
     ])
-    proxyCard.querySelector('button').onclick = () => {
-      update((st) => { st.settings.corsProxy = proxyI.value.trim() })
-      markSaved(); toast('代理地址已保存', 'ok')
-    }
 
     page.append(apiCard)
     page.append(customCard)
