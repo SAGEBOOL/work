@@ -50,8 +50,8 @@ body {
   overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; padding: 6px 10px 14px; }
-.brand .logo { font-size: 36px; line-height: 1; flex-shrink: 0; }
-.brand .brand-text { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.brand .logo { font-size: 18px; line-height: 1; flex-shrink: 0; }
+.brand .brand-text { font-size: 15px; font-weight: 700; line-height: 1; letter-spacing: 0; }
 .group-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -495,8 +495,8 @@ body.nav-open { overflow: hidden; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .wx-days { grid-template-columns: repeat(3, 1fr); }
   .content { padding: 12px; }
-  .brand .logo { font-size: 30px; }
-  .brand .brand-text { font-size: 24px; }
+  .brand .logo { font-size: 18px; }
+  .brand .brand-text { font-size: 15px; }
 }
 
 /* ===== 行业研究 · 6 步向导 ===== */
