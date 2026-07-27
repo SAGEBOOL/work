@@ -3,32 +3,57 @@
 import { el, clear, toast } from '../../core/ui.js'
 import { lineChart, barChart } from '../../core/charts.js'
 import { callChat } from '../../core/aiGateway.js'
-import { INDUSTRY_PRESETS } from '../../core/store.js'
+import { INDUSTRY_PRESETS, getSettings } from '../../core/store.js'
 
 const KEY = 'opwb:ir:v1'
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
-// 预置官方/专业数据源（用户可一键载入，也可自定义）
-const SOURCE_PRESETS = [
-  { name: '国家统计局', url: 'http://www.stats.gov.cn', category: '政府与统计', freq: '月/季/年', credibility: '高' },
-  { name: '国家数据（统计局数据库）', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '不定期', credibility: '高' },
-  { name: '中国人民银行', url: 'http://www.pbc.gov.cn', category: '金融', freq: '日/月', credibility: '高' },
-  { name: '工业和信息化部', url: 'https://www.miit.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高' },
-  { name: '中国证监会', url: 'http://www.csrc.gov.cn', category: '金融/监管', freq: '日', credibility: '高' },
-  { name: '巨潮资讯（上市公司财报）', url: 'http://www.cninfo.com.cn', category: '上市公司', freq: '日', credibility: '高' },
-  { name: '中国海关', url: 'https://www.customs.gov.cn', category: '贸易', freq: '月', credibility: '高' },
-  { name: '国家知识产权局（专利）', url: 'https://www.cnipa.gov.cn', category: '知识产权', freq: '月', credibility: '高' }
+// 通用官方/专业数据源（任意行业都可叠加）
+const GENERAL_SOURCES = [
+  { name: '国家统计局', url: 'http://www.stats.gov.cn', category: '政府与统计', freq: '月/季/年', credibility: '高', note: '综合宏观数据' },
+  { name: '国家数据（统计局数据库）', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '不定期', credibility: '高', note: '可检索下载指标' },
+  { name: '中国人民银行', url: 'http://www.pbc.gov.cn', category: '金融', freq: '日/月', credibility: '高', note: '货币、信贷' },
+  { name: '工业和信息化部', url: 'https://www.miit.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '产业运行' },
+  { name: '中国证监会', url: 'http://www.csrc.gov.cn', category: '金融/监管', freq: '日', credibility: '高', note: '上市公司' },
+  { name: '巨潮资讯（上市公司财报）', url: 'http://www.cninfo.com.cn', category: '上市公司', freq: '日', credibility: '高', note: '财报/公告' },
+  { name: '中国海关', url: 'https://www.customs.gov.cn', category: '贸易', freq: '月', credibility: '高', note: '进出口' },
+  { name: '国家知识产权局（专利）', url: 'https://www.cnipa.gov.cn', category: '知识产权', freq: '月', credibility: '高', note: '专利数据' }
 ]
 
-// 预置行业核心指标库
+// 分行业的官方/专业数据源（选行业后一键载入）
+const INDUSTRY_SOURCES = {
+  '建筑规划': [
+    { name: '国家统计局·固定资产投资/房地产', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '月/年', credibility: '高', note: '房地产开发投资、建筑业总产值、新开工面积' },
+    { name: '住房和城乡建设部', url: 'https://www.mohurd.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '城市更新、绿色建筑政策' },
+    { name: '中国建筑业协会', url: 'http://www.zgjzy.org', category: '行业协会', freq: '年', credibility: '中', note: '行业产值、企业排名' },
+    { name: '自然资源部', url: 'https://www.mnr.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '土地出让、用地审批' }
+  ],
+  '非遗传创': [
+    { name: '文化和旅游部·非物质文化遗产司', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '国家级非遗名录、传承人' },
+    { name: '中国非物质文化遗产网', url: 'http://www.ihchina.cn', category: '专业平台', freq: '不定期', credibility: '高', note: '非遗项目数据库' },
+    { name: '国家统计局·文化及相关产业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '文化产业增加值' },
+    { name: '中国文化产业协会', url: 'http://www.ccia.org.cn', category: '行业协会', freq: '年', credibility: '中', note: '文创市场规模' }
+  ],
+  '研学': [
+    { name: '教育部', url: 'http://www.moe.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '中小学在校生、研学政策' },
+    { name: '文化和旅游部', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '文旅接待、研学旅行' },
+    { name: '中国旅游研究院', url: 'http://www.ctaweb.org', category: '研究机构', freq: '季', credibility: '中', note: '旅游/研学市场规模' },
+    { name: '国家统计局·教育/旅游', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '教育、旅游数据' }
+  ],
+  '自媒体': [
+    { name: 'CNNIC·中国互联网络发展状况统计', url: 'https://www.cnnic.net.cn', category: '研究机构', freq: '半年', credibility: '高', note: '网民规模、短视频用户' },
+    { name: 'QuestMobile', url: 'https://www.questmobile.com.cn', category: '数据机构', freq: '季', credibility: '中', note: '移动互联网活跃、创作者' },
+    { name: '中国广告协会', url: 'http://www.china-caa.org', category: '行业协会', freq: '年', credibility: '中', note: '广告市场规模' },
+    { name: '国家统计局·信息服务业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '信息服务、数字经济' }
+  ]
+}
+
+// 预置行业核心指标库（按用户真实行业细化）
 const INDICATOR_PRESETS = {
-  '建筑规划': ['城镇化率', '建筑面积竣工量', '用地审批量', '行业总产值'],
-  '教育创意': ['在校生规模', '培训市场规模', '客单价', '续费率'],
-  '非遗传创': ['非遗项目数', '文创零售额', '文旅接待人次', '授权收入'],
-  '研学运营': ['研学参与人次', '客单价', '学校合作数', '复购率'],
-  '小说创作': ['网文市场规模', '付费率', 'ARPU', '月更新字数'],
-  '写作工具': ['月活用户', '订阅转化率', '客单价', '次月留存'],
-  '数据分析': ['数据服务市场规模', '企业数字化率', '岗位需求数', '客单价'],
+  '建筑规划': ['城镇化率(%)', '房地产开发投资额(亿元)', '建筑业总产值(亿元)', '房屋新开工面积(万㎡)', '土地成交价款(亿元)', '绿色建筑占比(%)', '人均公园绿地面积(㎡)', '城市更新投资(亿元)'],
+  '非遗传创': ['国家级非遗项目数(项)', '非遗传承人数量(人)', '文创产业增加值(亿元)', '文旅接待总人次(亿)', '非遗相关企业数(家)', '非遗产品线上销售额(亿元)', 'IP授权收入(亿元)'],
+  '研学': ['研学参与人次(万)', '研学市场规模(亿元)', '中小学在校生数(万人)', '研学基地/营地数(个)', '客单价(元/人)', '学校合作覆盖率(%)', '政策补贴金额(万元)'],
+  '自媒体': ['内容平台月活(亿)', '活跃创作者数(万)', '内容播放量(亿次)', '在线广告市场规模(亿元)', '直播带货GMV(亿元)', '平均粉丝增长(人/月)', '内容完播率(%)', '付费/打赏收入(亿元)'],
   '通用': ['市场规模', '同比增速', '渗透率', '行业集中度CR5']
 }
 
@@ -141,17 +166,32 @@ export const industryResearchPlugin = {
         nameI.value = urlI.value = catI.value = noteI.value = ''
         toast('已添加', 'ok')
       }
-      const presetBtn = el('button', { class: 'btn ghost' }, ['载入官方数据源预设'])
+      const presetBtn = el('button', { class: 'btn ghost' }, ['载入通用官方源'])
       presetBtn.onclick = () => {
         let added = 0
-        SOURCE_PRESETS.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p }); added++ } })
+        GENERAL_SOURCES.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p }); added++ } })
         save(s); drawList()
-        toast('已载入 ' + added + ' 个官方数据源', 'ok')
+        toast('已载入 ' + added + ' 个通用官方数据源', 'ok')
+      }
+      const userIndustry = (getSettings().industry && getSettings().industry[0]) || INDUSTRY_PRESETS[0]
+      const indSelSrc = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === userIndustry ? 'selected' : null }, [i])))
+      const indLoadBtn = el('button', { class: 'btn' }, ['一键载入行业数据源'])
+      indLoadBtn.onclick = () => {
+        const ind = indSelSrc.value
+        const list2 = (INDUSTRY_SOURCES[ind] || []).concat(GENERAL_SOURCES)
+        let added = 0
+        list2.forEach((p) => { if (!s.sources.some((x) => x.url === p.url)) { s.sources.push({ id: uid(), ...p, industry: ind }); added++ } })
+        save(s); drawList()
+        toast('已载入 ' + added + ' 个「' + ind + '」相关数据源', 'ok')
       }
 
       return el('div', { class: 'card' }, [
         el('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, [el('h3', {}, ['数据源目录']), presetBtn]),
-        el('p', { class: 'hint' }, ['记录官方/专业数据来源，便于回溯与引用。']),
+        el('p', { class: 'hint' }, ['选择行业后一键载入该行业专属的官方/专业数据源；浏览器受跨域限制无法直接抓取网页数据，请到对应站点下载后于「数据导入」粘贴或上传。']),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' }, [
+          el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSelSrc]),
+          indLoadBtn
+        ]),
         list,
         el('h3', { style: 'margin-top:16px' }, ['添加数据源']),
         el('div', { class: 'grid cols-2' }, [
@@ -171,7 +211,7 @@ export const industryResearchPlugin = {
     // ---------- 面板 2：数据导入 ----------
     const renderImport = () => {
       const ta = el('textarea', { rows: 6, placeholder: '粘贴 CSV（首行为列名）或 JSON 数组，例如：\n年份,市场规模(亿元),同比增速\n2021,1200,8.5\n2022,1310,9.2' })
-      const fileI = el('input', { type: 'file', accept: '.csv,.json,text/csv,application/json' })
+      const fileI = el('input', { type: 'file', accept: '.csv,.json,.xlsx,.xls,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const preview = el('div', {})
       let parsed = null
 
@@ -220,9 +260,28 @@ export const industryResearchPlugin = {
       fileI.onchange = async () => {
         const f = fileI.files && fileI.files[0]
         if (!f) return
-        const txt = await f.text()
-        ta.value = txt.slice(0, 5000)
-        doParse(txt)
+        const name = (f.name || '').toLowerCase()
+        try {
+          if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+            const XLSX = await import('xlsx')
+            const buf = await f.arrayBuffer()
+            const wb = XLSX.read(buf, { type: 'array' })
+            const ws = wb.Sheets[wb.SheetNames[0]]
+            const json = XLSX.utils.sheet_to_json(ws, { defval: '' })
+            if (!json.length) throw new Error('XLSX 第一个工作表无数据行')
+            const cols = Object.keys(json[0])
+            parsed = { columns: cols, rows: json.map((o) => { const r = {}; cols.forEach((c) => { r[c] = o[c] != null ? String(o[c]) : '' }); return r }) }
+            drawPreview()
+            toast('解析成功：' + parsed.rows.length + ' 行 × ' + parsed.columns.length + ' 列', 'ok')
+          } else {
+            const txt = await f.text()
+            ta.value = txt.slice(0, 5000)
+            doParse(txt)
+          }
+        } catch (e) {
+          parsed = null; clear(preview)
+          toast('解析失败：' + e.message, 'err')
+        }
       }
 
       const nameI = el('input', { type: 'text', placeholder: '数据集名称，如 2021-2024 非遗文创规模' })
@@ -294,9 +353,16 @@ export const industryResearchPlugin = {
       const dsSel = el('select', {}, s.datasets.map((d) => el('option', { value: d.id }, [d.name + '（' + d.industry + '）'])))
       const numSel = el('select', {})
       const chartKind = el('select', {}, [el('option', { value: 'line' }, ['折线图']), el('option', { value: 'bar' }, ['柱状图'])])
+      const angleSel = el('select', {}, [
+        el('option', { value: '综合' }, ['综合洞察']),
+        el('option', { value: '政策影响' }, ['政策影响']),
+        el('option', { value: '市场规模' }, ['市场规模']),
+        el('option', { value: '竞争格局' }, ['竞争格局'])
+      ])
       const chartWrap = el('div', {})
       const insightBox = el('div', { class: 'trans-output' })
       let lastInsight = ''
+      let lastAngle = '综合'
 
       const refreshNum = () => {
         const ds = s.datasets.find((d) => d.id === dsSel.value)
@@ -333,12 +399,21 @@ export const industryResearchPlugin = {
         const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
         const head = ds.rows.slice(0, 6).map((r) => ds.columns.map((c) => c + '=' + r[c]).join('，')).join('\n')
         const srcText = s.sources.length ? s.sources.map((x) => x.name + '(' + x.url + ')').join('；') : '（未登记数据源）'
+        const angle = angleSel.value
+        lastAngle = angle
+        let angleReq = ''
+        if (angle === '政策影响') angleReq = '本次聚焦于【政策影响】：请重点分析近年来相关政策/监管对该行业的影响方向与力度、政策红利与风险点，并给出合规与机会判断。'
+        else if (angle === '市场规模') angleReq = '本次聚焦于【市场规模】：请重点分析市场规模总量、增速、渗透率与天花板，细分赛道规模及核心增长驱动力。'
+        else if (angle === '竞争格局') angleReq = '本次聚焦于【竞争格局】：请重点分析市场集中度、主要参与者份额、进入壁垒、差异化策略与潜在颠覆者。'
+        else angleReq = '本次为【综合洞察】：请从趋势、异常、对标与建议多维度综合研判。'
         const prompt = '你是资深行业研究分析师。请基于以下行业研究数据生成结构化简报（中文，条理清晰，使用 Markdown 小标题）：\n行业：' + ds.industry +
           '\n数据集：' + ds.name +
           '\n数据来源：' + srcText +
           '\n分析指标：' + col +
+          '\n分析角度：' + angle +
           '\n样本量：' + vals.length + ' 条；首个值=' + (vals[0] ?? '无') + '；末个值=' + (vals[vals.length - 1] ?? '无') + '；均值=' + avg.toFixed(2) +
           '\n前 6 行原始数据：\n' + head +
+          '\n\n' + angleReq +
           '\n\n请输出：\n## 一、趋势解读（描述走势与拐点）\n## 二、异常与关键发现（指出明显异常或结构性变化）\n## 三、行业对标与建议（结合行业常识给出判断）\n## 四、一句话结论'
 
         clear(insightBox)
@@ -369,6 +444,7 @@ export const industryResearchPlugin = {
         lines.push('')
         lines.push('- 数据集：' + ds.name)
         lines.push('- 所属行业：' + ds.industry)
+        lines.push('- 分析角度：' + lastAngle)
         lines.push('- 生成时间：' + new Date().toLocaleString())
         lines.push('')
         lines.push('## 一、数据概览')
@@ -396,7 +472,7 @@ export const industryResearchPlugin = {
         const vals = ds.rows.map((r) => parseFloat(r[col])).filter((v) => !isNaN(v))
         const L = []
         L.push('# 行业研究报告\n')
-        L.push('- 数据集：' + ds.name + ' ｜ 行业：' + ds.industry + ' ｜ ' + new Date().toLocaleString() + '\n')
+        L.push('- 数据集：' + ds.name + ' ｜ 行业：' + ds.industry + ' ｜ 分析角度：' + lastAngle + ' ｜ ' + new Date().toLocaleString() + '\n')
         L.push('## 数据概览\n记录数：' + ds.rows.length + ' ｜ 字段：' + ds.columns.join('、') + '\n')
         if (vals.length) L.push('指标「' + col + '」：首个=' + vals[0] + '，末个=' + vals[vals.length - 1] + '\n')
         L.push('\n## AI 分析洞察\n' + (lastInsight || '（未生成）') + '\n')
@@ -415,6 +491,7 @@ export const industryResearchPlugin = {
           el('div', { class: 'field' }, [el('label', {}, ['数值指标']), numSel]),
           el('div', { class: 'field' }, [el('label', {}, ['图表类型']), chartKind])
         ]),
+        el('div', { class: 'field', style: 'max-width:280px;margin-top:8px' }, [el('label', {}, ['分析角度']), angleSel]),
         chartWrap,
         el('div', { class: 'row', style: 'gap:8px;margin:12px 0' }, [aiBtn, mdBtn, pdfBtn]),
         el('label', {}, ['AI 分析洞察']),
