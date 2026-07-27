@@ -111,7 +111,7 @@ export function renderSidebar(root, { navigate }) {
   clear(root)
   root.append(
     el('div', { class: 'brand' }, [
-      el('span', { class: 'logo' }, ['🏢']),
+      el('img', { class: 'logo', src: '/DSArt-logo.jpg', alt: 'DSArt·WORK' }),
       el('span', {}, ['DSArt·WORK'])
     ])
   )
