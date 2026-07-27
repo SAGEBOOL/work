@@ -49,8 +49,9 @@ body {
   padding: 16px 12px;
   overflow-y: auto;
 }
-.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; padding: 6px 10px 14px; }
-.brand .logo { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex-shrink: 0; box-shadow: 0 0 0 1px var(--border); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; padding: 6px 10px 14px; }
+.brand .logo { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex-shrink: 0; box-shadow: 0 0 0 1px var(--border); }
+.brand .brand-text { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
 .group-label { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .06em; padding: 14px 12px 6px; }
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
@@ -490,7 +491,8 @@ body.nav-open { overflow: hidden; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .wx-days { grid-template-columns: repeat(3, 1fr); }
   .content { padding: 12px; }
-  .brand .logo { width: 24px; height: 24px; }
+  .brand .logo { width: 28px; height: 28px; }
+  .brand .brand-text { font-size: 24px; }
 }
 
 /* ===== 行业研究 · 6 步向导 ===== */
