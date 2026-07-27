@@ -63,14 +63,36 @@ export function browserCallableProviders() {
   return providerList().filter((p) => p.browserOk)
 }
 
+// 获取单个供应商，包含内置与自定义模型
+export function getProvider(id) {
+  const built = PROVIDERS[id]
+  if (built) return built
+  const custom = getSettings().customModels?.find((m) => m.id === id)
+  if (!custom) return null
+  return {
+    id: custom.id,
+    name: custom.name || custom.id,
+    base: custom.baseUrl.replace(/\/$/, ''),
+    model: custom.model,
+    apiKey: custom.apiKey,
+    doc: custom.baseUrl,
+    isCustom: true,
+    browserOk: true
+  }
+}
+
 export function providerList() {
-  return Object.values(PROVIDERS)
+  const customs = getSettings().customModels?.map((m) => getProvider(m.id)).filter(Boolean) || []
+  return [...Object.values(PROVIDERS), ...customs]
 }
 
 // 已配置密钥的供应商
 export function configuredProviders() {
-  const keys = getSettings().apiKeys
-  return providerList().filter((p) => keys[p.id])
+  const s = getSettings()
+  return providerList().filter((p) => {
+    if (p.isCustom) return !!p.apiKey
+    return s.apiKeys[p.id]
+  })
 }
 
 // 统一聊天调用。
@@ -78,7 +100,7 @@ export function configuredProviders() {
 export async function callChat(opts = {}) {
   const s = getSettings()
   const providerId = opts.provider || s.defaultProvider
-  const p = PROVIDERS[providerId]
+  const p = getProvider(providerId)
   if (!p) throw new Error('未知供应商: ' + providerId)
 
   // ---------- 本地模型 Ollama 分支 ----------
@@ -131,9 +153,9 @@ export async function callChat(opts = {}) {
   }
 
   // ---------- 云厂商 OpenAI 兼容分支 ----------
-  const key = s.apiKeys[providerId]
+  const key = p.isCustom ? p.apiKey : s.apiKeys[providerId]
   if (!key) throw new Error('未配置 ' + p.name + ' 的 API Key，请到「设置」填写')
-  const model = opts.model || s.defaultModel
+  const model = opts.model || (p.isCustom ? p.model : s.defaultModel)
   const url = p.base + '/chat/completions'
 
   const body = {
