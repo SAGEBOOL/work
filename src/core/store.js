@@ -23,6 +23,7 @@ const defaultState = {
     providerConfig: {                             // 各供应商额外配置（如本地模型地址）
       ollama: { baseUrl: 'http://localhost:11434', model: 'llama3.1' }
     },
+    customModels: [],                             // [{ id, name, model, baseUrl, apiKey, isDefault }]
     industry: ['建筑规划', '非遗传创'],
     dataSources: { local: true, web: false, ima: false, tencentDocs: false },
     theme: 'light'
