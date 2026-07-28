@@ -1,38 +1,148 @@
-// 视频娱乐：①外部视频站点入口（原功能）②文字转音频（浏览器原生 TTS + 内嵌 md-to-mp3 离线技能包）
+// 视频娱乐：①外部视频站点入口（原功能）②文字转音频（复刻 md-to-mp3 技能流程：清理 Markdown → 微软 Edge 免费 TTS → 真实 MP3）
 import { el, clear, toast } from '../../core/ui.js'
 
 // 注意：原需求中地址为 tv.mydsart.wokr，按域名惯例修正为 .work
 const TV_URL = 'https://tv.mydsart.work/'
-// base 为 './'，静态资源放 public/ 即可，按文档基址相对解析（容错兜底，便于无 Vite 环境求值）
-const SKILL_ZIP = ((import.meta && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : './') + 'skills/md-to-mp3-skill.zip'
 
 // —— 本地持久化（与全站 opwb:* 约定一致）——
 const LS = (k, d) => { try { const v = localStorage.getItem('opwb:tts:' + k); return v == null ? d : v } catch (e) { return d } }
 const LSset = (k, v) => { try { localStorage.setItem('opwb:tts:' + k, v) } catch (e) {} }
 
-// 清理 Markdown 标记，提取纯净正文（复刻 md-to-mp3 的清理规则，适配浏览器 TTS）
+// 微软 Edge 免费 TTS 端点（与 edge-tts / md-to-mp3 技能同一后端、无需 Key）
+const TTS_WS = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclienttoken=6A7A6B8C8B4D4A8E9F3B2A1C5D6E7F8'
+const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3'
+// md-to-mp3 技能内置音色（默认男声云希）
+const VOICES = [
+  { id: 'zh-CN-YunxiNeural', name: '男声·云希（默认·小说朗读）' },
+  { id: 'zh-CN-XiaoxiaoNeural', name: '女声·晓晓（温和）' },
+  { id: 'zh-CN-YunyangNeural', name: '男声·云扬（新闻播报）' },
+  { id: 'zh-CN-XiaoyiNeural', name: '女声·晓伊（活泼）' },
+  { id: 'zh-CN-YunyeNeural', name: '男声·云野（温和）' }
+]
+
+// —— 清理 Markdown（忠实复刻 md_to_mp3.py 的 strip_markdown，提取纯净正文）——
 function cleanMarkdown(text) {
   let t = text || ''
-  t = t.replace(/^---[\s\S]*?---\s*/, '')          // YAML frontmatter
-  t = t.replace(/```[\s\S]*?```/g, ' ')            // 代码块
-  t = t.replace(/`([^`]+)`/g, '$1')                // 行内代码
-  t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')   // 图片 -> alt
-  t = t.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')    // 链接 -> text
-  t = t.replace(/^#{1,6}\s+/gm, '')                // 标题
-  t = t.replace(/^\s*>\s?/gm, '')                  // 引用
-  t = t.replace(/^\s*([-*+]|\d+[.)])\s+/gm, '')    // 列表
-  t = t.replace(/(\*\*|__)(.*?)\1/g, '$2')         // 加粗
-  t = t.replace(/(\*|_)(.*?)\1/g, '$2')            // 斜体
-  t = t.replace(/==([^=]+)==/g, '$1')              // 高亮
-  t = t.replace(/~~([^~]+)~~/g, '$1')              // 删除线
-  t = t.replace(/\[\^[^\]]*\]/g, '')               // 脚注引用
-  t = t.replace(/^\s*\[\^[^\]]+\]:.*$/gm, '')      // 脚注定义
-  t = t.replace(/^\s*\|[-:\s|]+\|\s*$/gm, '')      // 表格分隔行
-  t = t.replace(/\s*\|\s*/g, ' ')                  // 表格列分隔
-  t = t.replace(/^[-*_]{3,}\s*$/gm, '')            // 水平线
+  t = t.replace(/^---[\s\S]*?---\s*\n?/, '')                          // 1. YAML 头
+  t = t.replace(/\*\*【本章概要】\*\*[\s\S]*?(?=\n---)/g, '')          // 2. 章节概要块
+  t = t.replace(/\*\*【本章概要】\*\*[\s\S]*?(?=---)/g, '')
+  t = t.replace(/\*\*【第[一二三四五六七八九十\d]+章完\s*[·・]?\s*约?\d*字?】\*\*/g, '') // 3. 章末统计
+  t = t.replace(/^\*字数[：:].*$/gm, '')
+  t = t.replace(/^\*主角[：:].*$/gm, '')
+  t = t.replace(/^\*保存路径[：:].*$/gm, '')
+  t = t.replace(/^\[\^[^\]]+\]:.*$/gm, '')                            // 4. 脚注定义
+  t = t.replace(/\[\^\d+\]/g, '')                                     //    脚注引用
+  t = t.replace(/==([^=\n]+)==/g, '$1')                              // 5. 高亮
+  t = t.replace(/~~([^~\n]+)~~/g, '$1')                              //    删除线
+  t = t.replace(/(?<!=)==(?!=)/g, '')
+  t = t.replace(/(?<!~)~~(?!~)/g, '')
+  t = t.replace(/```[\s\S]*?```/g, ' ')                             // 6. 代码块
+  t = t.replace(/`[^`]*`/g, '')                                       //    行内代码
+  t = t.replace(/<[^>]+>/g, '')                                       // 7. HTML 标签
+  t = t.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')                     // 8. 图片 -> alt
+  t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')                     //    链接 -> text
+  t = t.replace(/^#{1,6}\s+/gm, '')                                  // 9. 标题
+  t = t.replace(/^[-*_]{3,}\s*$/gm, '')                              // 10. 水平线
+  t = t.replace(/\*{2}([^*]+)\*{2}/g, '$1')                         // 11. 加粗
+  t = t.replace(/\*([^*]+)\*/g, '$1')                               //     斜体
+  t = t.replace(/_{2}([^_]+)_{2}/g, '$1')
+  t = t.replace(/_([^_]+)_/g, '$1')
+  t = t.replace(/^\s*[-*+]\s+/gm, '')                               // 12. 列表
+  t = t.replace(/^\s*\d+\.\s+/gm, '')
+  t = t.replace(/^\s*>\s?/gm, '')                                   // 13. 引用
+  t = t.replace(/^\|?\s*:?-+:?\s*\|?\s*$/gm, '')                    // 14. 表格分隔
+  t = t.replace(/\|\s*/g, ' ')                                       //     表格列
+  t = t.replace(/\n{3,}/g, '\n\n')                                  // 15. 空白压缩
   t = t.replace(/[ \t]{2,}/g, ' ')
-  t = t.replace(/\n{3,}/g, '\n\n')
   return t.trim()
+}
+
+// 按句分块（≤5000 字，复刻 edge-tts 单请求上限）
+function splitChunks(text, max = 5000) {
+  const sentences = text.split(/(?<=[。！？!?\n])/)
+  const chunks = []
+  let cur = ''
+  for (const s of sentences) {
+    if (!s.trim()) continue
+    if ((cur + s).length <= max) cur += s
+    else {
+      if (cur) chunks.push(cur.trim())
+      if (s.length > max) { for (let i = 0; i < s.length; i += max) chunks.push(s.slice(i, i + max).trim()); cur = '' }
+      else cur = s
+    }
+  }
+  if (cur) chunks.push(cur.trim())
+  return chunks.filter(c => c.trim())
+}
+
+// —— 底层：单块文本经微软 Edge TTS 返回 MP3 Blob（复刻 edge_tts.Communicate.save）——
+function edgeTTSChunk(text, voice, ratePct) {
+  return new Promise((resolve, reject) => {
+    let ws
+    try { ws = new WebSocket(TTS_WS) }
+    catch (e) { reject(new Error('无法创建 WebSocket 连接：' + e.message)); return }
+    ws.binaryType = 'arraybuffer'
+    const audioChunks = []
+    let turnEnded = false, settled = false
+    const finish = (ok, dataOrErr) => {
+      if (settled) return
+      settled = true
+      try { ws.close() } catch (e) {}
+      if (ok) resolve(dataOrErr); else reject(dataOrErr)
+    }
+    const timeout = setTimeout(() => finish(false, new Error('连接超时（微软 TTS 服务无响应，可能是网络被拦截）')), 60000)
+
+    ws.onopen = () => {
+      try {
+        const config = { context: { synthesis: { audio: {
+          metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: false },
+          outputFormat: OUTPUT_FORMAT } } } }
+        ws.send(buildMsg({ 'Content-Type': 'application/json; charset=utf-8', 'Path': 'speech.config', 'X-Timestamp': nowGMT() }, JSON.stringify(config)))
+        const locale = (voice.split('-').slice(0, 2).join('-')) || 'zh-CN'
+        const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='" + locale + "'>" +
+          "<voice name='" + voice + "'><prosody rate='" + ratePct + "'>" + escapeXml(text) + '</prosody></voice></speak>'
+        ws.send(buildMsg({ 'Content-Type': 'application/ssml+xml', 'Path': 'ssml', 'X-RequestId': uuid(), 'X-Timestamp': nowGMT() }, ssml))
+      } catch (e) { finish(false, new Error('发送请求失败：' + e.message)) }
+    }
+    ws.onmessage = (ev) => {
+      try {
+        const bytes = new Uint8Array(ev.data)
+        const sep = findSep(bytes)
+        if (sep === -1) { if (bytes.length) audioChunks.push(bytes); return }
+        const headerText = new TextDecoder().decode(bytes.subarray(0, sep))
+        const audio = bytes.subarray(sep + 4)
+        if (/Path:\s*audio/i.test(headerText)) { if (audio.length) audioChunks.push(audio) }
+        else if (/Path:\s*turn\.end/i.test(headerText)) { turnEnded = true }
+      } catch (e) { finish(false, new Error('解析响应出错：' + e.message)) }
+    }
+    ws.onerror = () => { clearTimeout(timeout); finish(false, new Error('WebSocket 错误（连接被拒绝/网络不通，请检查网络或代理）')) }
+    ws.onclose = () => {
+      clearTimeout(timeout)
+      if (settled) return
+      if (audioChunks.length) finish(true, new Blob(audioChunks, { type: 'audio/mpeg' }))
+      else if (turnEnded) finish(true, new Blob([], { type: 'audio/mpeg' }))
+      else finish(false, new Error('连接已关闭但未收到音频（网络拦截或服务不可用）'))
+    }
+  })
+}
+function buildMsg(headers, body) {
+  let h = ''
+  for (const k in headers) h += k + ': ' + headers[k] + '\r\n'
+  h += '\r\n'
+  const enc = new TextEncoder()
+  const hb = enc.encode(h), bb = enc.encode(body)
+  const out = new Uint8Array(hb.length + bb.length)
+  out.set(hb, 0); out.set(bb, hb.length)
+  return out.buffer
+}
+function findSep(b) { for (let i = 0; i < b.length - 3; i++) if (b[i] === 0x0d && b[i + 1] === 0x0a && b[i + 2] === 0x0d && b[i + 3] === 0x0a) return i; return -1 }
+function escapeXml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
+function nowGMT() { return new Date().toUTCString() }
+function uuid() {
+  const b = new Uint8Array(16); (window.crypto || window.msCrypto).getRandomValues(b)
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80
+  const h = [...b].map(x => x.toString(16).padStart(2, '0'))
+  return [h.slice(0, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 16)].map(a => a.join('')).join('-')
 }
 
 // —— 标签①：视频娱乐站 ——
@@ -51,193 +161,144 @@ function renderTv(panel) {
   )
 }
 
-// —— 标签②：文字转音频 ——
+// —— 标签②：文字转音频（真实 MP3 生成，复刻 md-to-mp3 技能流程）——
 function renderTextToAudio(panel) {
   const supported = typeof window !== 'undefined' && 'speechSynthesis' in window
-  let voices = []
-  const state = { playing: false, paused: false, idx: 0, total: 0, spoken: 0, chunks: [], rate: 0.9, pitch: 1 }
 
-  // 控件
   const fileInput = el('input', { type: 'file', accept: '.md,.markdown,.txt,text/markdown,text/plain', style: 'display:none' })
   const loadBtn = el('button', { class: 'btn' }, ['📂 载入 .md/.txt'])
   const textArea = el('textarea', {
-    placeholder: '在此粘贴或输入要朗读的文本；或点击「载入 .md/.txt」导入并自动去除 Markdown 标记。',
-    style: 'width:100%;min-height:220px;resize:vertical;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;box-sizing:border-box'
+    placeholder: '在此粘贴或输入文字 / Markdown；或点击「载入 .md/.txt」导入并自动清理为纯净正文。',
+    style: 'width:100%;min-height:200px;resize:vertical;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;box-sizing:border-box'
   })
   const charCount = el('span', { class: 'muted' }, ['0 字'])
   const voiceSel = el('select', {})
+  for (const v of VOICES) voiceSel.append(el('option', { value: v.id }, [v.name]))
+  const savedVoice = LS('voice', 'zh-CN-YunxiNeural')
+  if (VOICES.some(v => v.id === savedVoice)) voiceSel.value = savedVoice
   const rate = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: LS('rate', '0.9') })
   const rateVal = el('span', { class: 'muted' }, [(+rate.value).toFixed(2) + '×'])
-  const pitch = el('input', { type: 'range', min: '0', max: '2', step: '0.05', value: LS('pitch', '1') })
-  const pitchVal = el('span', { class: 'muted' }, [(+pitch.value).toFixed(2)])
-  const playBtn = el('button', { class: 'btn primary' }, ['▶ 朗读'])
-  const pauseBtn = el('button', { class: 'btn' }, ['⏸ 暂停'])
-  const stopBtn = el('button', { class: 'btn ghost' }, ['⏹ 停止'])
-  const track = el('div', { style: 'height:8px;background:var(--panel-2);border-radius:6px;overflow:hidden;margin-top:4px' })
+  const fileNameInput = el('input', { type: 'text', placeholder: '输出文件名（不含扩展名）', style: 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const genBtn = el('button', { class: 'btn primary', style: 'font-size:15px;padding:11px 22px' }, ['⬇ 生成 MP3（微软 Edge TTS）'])
+  const previewBtn = el('button', { class: 'btn' }, ['🔊 浏览器试听'])
+  if (!supported) previewBtn.disabled = true
+  const progress = el('div', { style: 'height:8px;background:var(--panel-2);border-radius:6px;overflow:hidden;margin-top:4px' })
   const fill = el('div', { style: 'height:100%;width:0%;background:var(--primary);transition:width .15s' })
-  track.append(fill)
-  const progText = el('span', { class: 'muted' }, ['0 / 0 字'])
-  const status = el('div', { class: 'alert', style: 'margin-top:10px' }, ['就绪'])
+  progress.append(fill)
+  const progText = el('span', { class: 'muted' }, ['0 / 0 段'])
+  const status = el('div', { class: 'alert' }, ['就绪'])
+  const audioEl = el('audio', { controls: true, style: 'width:100%;margin-top:10px;display:none' })
+  const downloadLink = el('a', { class: 'btn primary', download: 'tts.mp3', style: 'display:none;margin-top:8px;text-decoration:none' }, ['⬇ 下载 MP3'])
+  const historyBox = el('div', { style: 'margin-top:8px' })
 
   const setStatus = (msg, type) => { status.className = 'alert' + (type ? ' ' + type : ''); status.textContent = msg }
-  const updateProgress = (done, total) => {
-    fill.style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'
-    progText.textContent = `${done} / ${total} 字`
+  const updateProgress = (done, total) => { fill.style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'; progText.textContent = `${done} / ${total} 段` }
+
+  const saveHistory = (item) => {
+    let list = []
+    try { list = JSON.parse(LS('history', '[]')) || [] } catch (e) {}
+    list.unshift(item)
+    if (list.length > 20) list = list.slice(0, 20)
+    LSset('history', JSON.stringify(list))
   }
-  const loadVoices = () => { voices = (window.speechSynthesis && speechSynthesis.getVoices()) || []; return voices }
-  const pickDefault = (list) => list.find(v => /zh[-_]?CN/i.test(v.lang)) || list.find(v => /^zh/i.test(v.lang)) || list[0]
-  const refreshVoices = () => {
-    loadVoices()
-    const cur = voiceSel.value
-    clear(voiceSel)
-    if (!voices.length) { voiceSel.append(el('option', { value: '' }, ['（浏览器未提供音色，请换用 Chrome/Edge/Safari）'])); return }
-    const sorted = [...voices].sort((a, b) => {
-      const az = /zh/i.test(a.lang) ? 0 : 1, bz = /zh/i.test(b.lang) ? 0 : 1
-      return az - bz || a.name.localeCompare(b.name)
-    })
-    for (const v of sorted) voiceSel.append(el('option', { value: v.voiceURI }, [`${v.name} · ${v.lang}`]))
-    if (cur && sorted.some(v => v.voiceURI === cur)) voiceSel.value = cur
-    else { const d = pickDefault(sorted); if (d) voiceSel.value = d.voiceURI }
+  const renderHistory = () => {
+    let list = []
+    try { list = JSON.parse(LS('history', '[]')) || [] } catch (e) {}
+    clear(historyBox)
+    if (!list.length) { historyBox.append(el('p', { class: 'muted' }, ['暂无生成记录'])); return }
+    historyBox.append(el('p', { class: 'muted' }, ['最近生成（' + list.length + '）：']))
+    for (const it of list) {
+      historyBox.append(el('div', { style: 'display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);font-size:13px' }, [
+        el('span', {}, [it.name + ' · ' + it.voice + ' · ' + it.rate + '× · ' + it.chunks + '段']),
+        el('span', { class: 'muted' }, [((it.size || 0) / 1024).toFixed(1) + ' KB · ' + new Date(it.time).toLocaleString()])
+      ]))
+    }
   }
 
-  // 长文本分块（按句切分，单块 ≤ 1800 字，提升浏览器可靠性与进度精度）
-  const MAX_CHUNK = 1800
-  const splitChunks = (text) => {
-    const sentences = text.match(/[^。！？!?；;\n]+[。！？!?；;\n]*/g) || [text]
-    const out = []
-    let buf = ''
-    for (const s of sentences) {
-      if ((buf + s).length > MAX_CHUNK) {
-        if (buf) out.push(buf)
-        if (s.length > MAX_CHUNK) { for (let i = 0; i < s.length; i += MAX_CHUNK) out.push(s.slice(i, i + MAX_CHUNK)) }
-        else buf = s
-      } else buf += s
-    }
-    if (buf) out.push(buf)
-    return out.filter(c => c.trim())
-  }
-
-  let currentU = null
-  const speakNext = () => {
-    if (state.idx >= state.chunks.length) {
-      state.playing = false; state.paused = false
-      setStatus('✓ 朗读完成', 'ok'); updateProgress(state.total, state.total)
-      playBtn.textContent = '▶ 朗读'
-      return
-    }
-    const u = new SpeechSynthesisUtterance(state.chunks[state.idx])
-    const v = voices.find(x => x.voiceURI === voiceSel.value) || pickDefault(voices)
-    if (v) { u.voice = v; u.lang = v.lang } else u.lang = 'zh-CN'
-    u.rate = state.rate; u.pitch = state.pitch
-    u.onboundary = (e) => {
-      const base = state.chunks.slice(0, state.idx).reduce((a, c) => a + c.length, 0)
-      updateProgress(state.total, Math.min(state.total, base + (e.charIndex || 0)))
-    }
-    u.onend = () => {
-      if (!state.playing) return
-      state.spoken += state.chunks[state.idx].length
-      state.idx++
-      speakNext()
-    }
-    u.onerror = (e) => {
-      if (e.error === 'interrupted' || e.error === 'canceled' || e.error === 'cancelled') return
-      state.playing = false; state.paused = false
-      setStatus('✗ 朗读出错：' + (e.error || '未知'), 'err')
-      playBtn.textContent = '▶ 朗读'
-    }
-    currentU = u
-    speechSynthesis.speak(u)
-  }
-
-  const play = () => {
-    if (!supported) { toast('当前浏览器不支持语音合成（Web Speech API）', 'err'); return }
-    if (state.paused) { speechSynthesis.resume(); state.paused = false; setStatus('🔊 朗读中…'); playBtn.textContent = '▶ 朗读'; return }
+  const generate = async () => {
     const text = cleanMarkdown(textArea.value)
-    if (!text) { toast('没有可朗读的文本', 'err'); return }
-    speechSynthesis.cancel()
+    if (!text.trim()) { toast('没有可转换的文本', 'err'); return }
+    const voice = voiceSel.value
+    const rateNum = +rate.value
+    const pct = Math.round((rateNum - 1) * 100)
+    const ratePct = (pct >= 0 ? '+' : '') + pct + '%'
     const chunks = splitChunks(text)
-    if (!chunks.length) { toast('没有可朗读的文本', 'err'); return }
-    state.total = text.length
-    state.spoken = 0; state.idx = 0; state.chunks = chunks
-    state.rate = +rate.value; state.pitch = +pitch.value
-    state.playing = true; state.paused = false
-    setStatus('🔊 朗读中…'); updateProgress(0, state.total); playBtn.textContent = '▶ 朗读'
-    speakNext()
-  }
-  const pause = () => {
-    if (state.playing && !state.paused) { speechSynthesis.pause(); state.paused = true; setStatus('⏸ 已暂停'); playBtn.textContent = '▶ 继续' }
-  }
-  const stop = () => {
-    if (supported) speechSynthesis.cancel()
-    state.playing = false; state.paused = false; state.idx = 0; state.spoken = 0
-    setStatus('就绪'); updateProgress(0, 0); playBtn.textContent = '▶ 朗读'
+    genBtn.disabled = true; previewBtn.disabled = true; downloadLink.style.display = 'none'; audioEl.style.display = 'none'
+    const blobs = []
+    try {
+      for (let i = 0; i < chunks.length; i++) {
+        setStatus('⏳ 正在生成第 ' + (i + 1) + '/' + chunks.length + ' 段（经微软 Edge TTS 合成）…', '')
+        updateProgress(i, chunks.length)
+        const blob = await edgeTTSChunk(chunks[i], voice, ratePct)
+        blobs.push(blob)
+      }
+      updateProgress(chunks.length, chunks.length)
+      const finalBlob = new Blob(blobs, { type: 'audio/mpeg' })
+      const url = URL.createObjectURL(finalBlob)
+      audioEl.src = url; audioEl.style.display = ''
+      const fname = (fileNameInput.value.trim() || ('tts-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-'))) + '.mp3'
+      downloadLink.href = url; downloadLink.download = fname; downloadLink.style.display = ''
+      setStatus('✓ 生成完成：' + fname + '（' + (finalBlob.size / 1024).toFixed(1) + ' KB，' + chunks.length + ' 段合并）', 'ok')
+      saveHistory({ name: fname, voice, rate: rateNum.toFixed(2), size: finalBlob.size, time: Date.now(), chunks: chunks.length })
+      renderHistory()
+    } catch (e) {
+      setStatus('✗ 生成失败：' + e.message + '（若网络被拦截，可改用「浏览器试听」，或检查代理后重试）', 'err')
+    } finally {
+      genBtn.disabled = false; if (supported) previewBtn.disabled = false
+    }
   }
 
-  // 事件
+  const preview = () => {
+    const text = cleanMarkdown(textArea.value)
+    if (!text.trim()) { toast('没有可朗读文本', 'err'); return }
+    if (!supported) { toast('浏览器不支持语音合成', 'err'); return }
+    speechSynthesis.cancel()
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'zh-CN'; u.rate = +rate.value
+    speechSynthesis.speak(u)
+    setStatus('🔊 浏览器试听中（此模式为设备/浏览器语音，不产出文件；要导出 MP3 请点「生成 MP3」）')
+  }
+
   loadBtn.onclick = () => fileInput.click()
   fileInput.onchange = () => {
     const f = fileInput.files[0]; if (!f) return
     const r = new FileReader()
     r.onload = () => { textArea.value = cleanMarkdown(String(r.result || '')); onText(); toast('已载入并清理：' + f.name) }
-    r.readAsText(f)
-    fileInput.value = ''
+    r.readAsText(f); fileInput.value = ''
   }
   let saveTimer = null
   const onText = () => {
-    charCount.textContent = (textArea.value.length) + ' 字（朗读前自动清理 Markdown）'
+    const n = textArea.value.length
+    charCount.textContent = n + ' 字（生成前自动清理 Markdown）'
     clearTimeout(saveTimer); saveTimer = setTimeout(() => LSset('text', textArea.value), 400)
   }
   textArea.oninput = onText
   voiceSel.onchange = () => LSset('voice', voiceSel.value)
   rate.oninput = () => { rateVal.textContent = (+rate.value).toFixed(2) + '×'; LSset('rate', rate.value) }
-  pitch.oninput = () => { pitchVal.textContent = (+pitch.value).toFixed(2); LSset('pitch', pitch.value) }
-  playBtn.onclick = play
-  pauseBtn.onclick = pause
-  stopBtn.onclick = stop
+  genBtn.onclick = generate
+  previewBtn.onclick = preview
 
-  // 初始化
-  if (supported) {
-    refreshVoices()
-    if ('onvoiceschanged' in speechSynthesis) speechSynthesis.onvoiceschanged = refreshVoices
-    const sv = LS('voice', '')
-    if (sv && [...voiceSel.options].some(o => o.value === sv)) voiceSel.value = sv
-  } else {
-    voiceSel.append(el('option', { value: '' }, ['（不支持语音合成）']))
-    playBtn.disabled = true; pauseBtn.disabled = true; stopBtn.disabled = true
-    setStatus('当前浏览器不支持 Web Speech API，无法朗读', 'err')
-  }
   if (LS('text', '')) textArea.value = LS('text', '')
   onText()
-
-  // 离线技能包下载卡片
-  const skillCard = el('div', { class: 'card', style: 'margin-top:16px' }, [
-    el('h3', {}, ['📦 离线生成 MP3 —— md-to-mp3 技能包']),
-    el('p', { class: 'muted', style: 'line-height:1.65' }, ['上方朗读由浏览器原生语音合成驱动（即时、无需联网与密钥，纯前端）。如需把文字 / Markdown 导出为可下载的 .mp3 文件，可使用下方离线技能包：它在你本机用 Python + 微软 Edge 免费 TTS 批量生成 MP3（无需 API Key）。']),
-    el('a', { class: 'btn primary', href: SKILL_ZIP, download: 'md-to-mp3-skill.zip', style: 'display:inline-block;text-decoration:none;margin-top:6px' }, ['⬇ 下载技能包 (.zip)']),
-    el('div', { class: 'muted', style: 'margin:12px 0 6px' }, ['本机使用方法：']),
-    el('pre', { style: 'background:var(--panel-2);padding:10px 12px;border-radius:8px;overflow:auto;font-size:12px;margin:0' },
-      ['pip install edge-tts\nunzip md-to-mp3-skill.zip\npython3 md-to-mp3/scripts/md_to_mp3.py 你的文件.md\n# 可选：--voice zh-CN-XiaoxiaoNeural --rate 0.9 --bgm bgm.mp3'])
-  ])
+  renderHistory()
 
   panel.append(
-    el('p', { class: 'sub' }, ['浏览器原生语音合成（Web Speech API）：即时朗读、纯前端、无需密钥；并内嵌 md-to-mp3 离线技能包用于导出真实 MP3。']),
+    el('p', { class: 'sub' }, ['复刻 md-to-mp3 技能流程：清理 Markdown → 微软 Edge 免费 TTS（无需 Key）→ 真实可下载 MP3。默认男声云希、语速 0.9×（与技能一致）。']),
     el('div', { class: 'card' }, [
       el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, [loadBtn, charCount]),
-      fileInput,
-      textArea,
-      el('p', { class: 'hint', style: 'margin-top:6px' }, ['粘贴的 Markdown（# 标题、**加粗**、链接等）会在朗读前自动清理为纯净正文。文本自动保存在本机。'])
+      fileInput, textArea,
+      el('p', { class: 'hint', style: 'margin-top:6px' }, ['Markdown（# 标题、**加粗**、链接、代码块、表格、脚注、章末统计等）会在生成前自动清理为纯净正文。文本自动保存在本机。'])
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [
       el('div', { class: 'grid cols-2' }, [
-        el('div', { class: 'field' }, [el('label', {}, ['音色（优先中文）']), voiceSel]),
-        el('div', { class: 'field' }, [el('label', {}, ['语调']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [pitch, pitchVal])])
+        el('div', { class: 'field' }, [el('label', {}, ['音色（微软 Edge）']), voiceSel]),
+        el('div', { class: 'field' }, [el('label', {}, ['语速（默认 0.9×）']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [rate, rateVal])])
       ]),
-      el('div', { class: 'field' }, [el('label', {}, ['语速（默认 0.9×）']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [rate, rateVal])]),
-      el('div', { class: 'row', style: 'margin-top:4px' }, [playBtn, pauseBtn, stopBtn]),
-      track, progText,
-      status
+      el('div', { class: 'field', style: 'margin-top:6px' }, [el('label', {}, ['输出文件名']), fileNameInput]),
+      el('div', { class: 'row', style: 'margin-top:10px' }, [genBtn, previewBtn]),
+      progress, progText, status, audioEl, downloadLink
     ]),
-    skillCard
+    el('div', { class: 'card', style: 'margin-top:16px' }, [historyBox])
   )
 }
 
@@ -264,11 +325,7 @@ export const videoEntertainmentPlugin = {
       tabsDef[i].render(panel)
     }
     setTab(0)
-
-    const page = el('div', { class: 'page' }, [
-      el('h1', {}, ['视频娱乐']),
-      seg, panel
-    ])
+    const page = el('div', { class: 'page' }, [el('h1', {}, ['视频娱乐']), seg, panel])
     root.append(page)
   }
 }
