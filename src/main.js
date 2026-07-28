@@ -12,10 +12,8 @@ import { overviewPlugin } from './plugins/overview/index.js'
 import { pomodoroPlugin } from './plugins/pomodoro/index.js'
 import { translatePlugin } from './plugins/translate/index.js'
 import { pdfToolsPlugin } from './plugins/pdf-tools/index.js'
-import { imageWatermarkPlugin } from './plugins/image-watermark/index.js'
-import { videoWatermarkPlugin } from './plugins/video-watermark/index.js'
+import { imageProcessingPlugin } from './plugins/image-processing/index.js'
 import { fileOrganizerPlugin } from './plugins/file-organizer/index.js'
-import { industryAnalysisPlugin } from './plugins/industry-analysis/index.js'
 import { industryResearchPlugin } from './plugins/industry-research/index.js'
 import { docOrganizerPlugin } from './plugins/doc-organizer/index.js'
 import { crmPlugin } from './plugins/crm/index.js'
@@ -29,10 +27,8 @@ registerPlugin(overviewPlugin)
 registerPlugin(pomodoroPlugin)
 registerPlugin(translatePlugin)
 registerPlugin(pdfToolsPlugin)
-registerPlugin(imageWatermarkPlugin)
-registerPlugin(videoWatermarkPlugin)
+registerPlugin(imageProcessingPlugin)
 registerPlugin(fileOrganizerPlugin)
-registerPlugin(industryAnalysisPlugin)
 registerPlugin(industryResearchPlugin)
 registerPlugin(docOrganizerPlugin)
 registerPlugin(crmPlugin)
