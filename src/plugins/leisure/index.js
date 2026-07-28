@@ -1,5 +1,6 @@
-// 休闲娱乐：日历（可备注）+ 天气预报（Open-Meteo 免费无需 Key）+ 记事便签（localStorage）。
+// 休闲娱乐：日历（可备注 + 农历）+ 天气预报（Open-Meteo 免费无需 Key）+ 记事便签（localStorage）。
 import { el, clear } from '../../core/ui.js'
+import { solarToLunar, lunarCellText, lunarFullText } from '../../core/lunar.js'
 
 const WMO = {
   0: '晴', 1: '大致晴朗', 2: '局部多云', 3: '阴',
@@ -58,19 +59,26 @@ export const leisurePlugin = {
       const todayS = dayStr(t.getFullYear(), t.getMonth(), t.getDate())
       for (let d = 1; d <= days; d++) {
         const ds = dayStr(vy, vm, d)
+        const lunar = solarToLunar(vy, vm + 1, d)
         const cell = el('div', {
           class: 'cal-cell'
             + (ds === selected ? ' sel' : '')
             + (ds === todayS ? ' today' : '')
             + (notes[ds] ? ' has' : '')
-        }, [String(d)])
+        }, [
+          el('div', { class: 'cal-d' }, [String(d)]),
+          el('div', { class: 'cal-lunar' }, [lunarCellText(lunar)])
+        ])
         cell.onclick = () => { selected = ds; renderCal(); renderNote() }
         calGrid.append(cell)
       }
     }
     const renderNote = () => {
       clear(noteWrap)
-      noteWrap.append(el('div', { class: 'muted', style: 'margin-bottom:6px' }, ['📌 ' + selected + (notes[selected] ? '（已有备注）' : '')]))
+      const [sy, sm, sd] = selected.split('-').map(Number)
+      const selLunar = solarToLunar(sy, sm, sd)
+      noteWrap.append(el('div', { class: 'muted', style: 'margin-bottom:2px' }, ['📌 ' + selected + (notes[selected] ? '（已有备注）' : '')]))
+      noteWrap.append(el('div', { class: 'cal-lunar-line', style: 'margin-bottom:6px' }, [lunarFullText(selLunar)]))
       noteInput.value = notes[selected] || ''
       noteWrap.append(noteInput)
     }
