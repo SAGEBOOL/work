@@ -372,7 +372,7 @@ export const settingsPlugin = {
     const srcCard = el('div', { class: 'card' }, [
       el('h3', {}, ['数据源开关']),
       srcWrap,
-      el('p', { class: 'hint' }, ['开启后，对应插件可调用该来源（纯前端版本仅作标记，后续接入具体能力）。'])
+      el('p', { class: 'hint' }, ['开启后，对应插件（主要是「行业研究」）会显示该来源的输入入口。其中「联网搜索」「IMA 知识库」需先在上方对应配置卡片填写凭证；「本地文件」为本机上传，恒可用；「腾讯文档」暂未接入。开关关闭则对应入口隐藏。'])
     ])
 
     // ---------- 5. 主题 ----------
@@ -597,9 +597,91 @@ export const settingsPlugin = {
       el('button', { class: 'btn ghost', disabled: true }, ['保存代理地址'])
     ])
 
+    // ---------- 4.5 联网搜索配置 ----------
+    const searchCfg = s.search || { provider: 'brave', key: '', proxy: '', custom: {} }
+    const sProvSel = el('select', {}, [
+      el('option', { value: 'brave' }, ['Brave Search（推荐，有免费额度）']),
+      el('option', { value: 'serpapi' }, ['SerpAPI（Google）']),
+      el('option', { value: 'custom' }, ['自定义（URL 模板 + 路径）'])
+    ])
+    sProvSel.value = searchCfg.provider || 'brave'
+    const sKeyI = el('input', { type: 'password', value: searchCfg.key || '', placeholder: 'API Key' })
+    const sProxyI = el('input', { type: 'text', value: searchCfg.proxy || '', placeholder: '可选 · 如 https://代理/?url= 或 https://代理/' })
+    const sCustomWrap = el('div', { class: 'field', style: 'display:' + (sProvSel.value === 'custom' ? '' : 'none') }, [
+      el('label', {}, ['URL 模板（用 {q} 占位查询，{key} 占位 Key）']),
+      el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.url) || '', placeholder: 'https://api.example.com/search?q={q}&key={key}' }),
+      el('label', { style: 'margin-top:8px' }, ['结果数组路径 / 标题 / 链接 / 摘要 路径']),
+      el('div', { class: 'row', style: 'gap:6px' }, [
+        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.resultPath) || '', placeholder: 'data.results' }),
+        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.titlePath) || '', placeholder: 'title' }),
+        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.urlPath) || '', placeholder: 'url' }),
+        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.snippetPath) || '', placeholder: 'snippet' })
+      ])
+    ])
+    sProvSel.onchange = () => { sCustomWrap.style.display = sProvSel.value === 'custom' ? '' : 'none' }
+    const saveSearch = () => {
+      update((st) => {
+        st.settings.search = {
+          provider: sProvSel.value,
+          key: sKeyI.value.trim(),
+          proxy: sProxyI.value.trim(),
+          custom: {
+            url: sCustomWrap.querySelector('input').value.trim(),
+            resultPath: sCustomWrap.querySelectorAll('input')[1].value.trim(),
+            titlePath: sCustomWrap.querySelectorAll('input')[2].value.trim(),
+            urlPath: sCustomWrap.querySelectorAll('input')[3].value.trim(),
+            snippetPath: sCustomWrap.querySelectorAll('input')[4].value.trim()
+          }
+        }
+      })
+      markSaved()
+    }
+    ;[sKeyI, sProxyI].forEach((i) => (i.oninput = saveSearch))
+    sProvSel.onchange = (() => { const f = sProvSel.onchange; return (e) => { f(e); saveSearch() } })()
+    sCustomWrap.querySelectorAll('input').forEach((i) => (i.oninput = saveSearch))
+    const searchCard = el('div', { class: 'card' }, [
+      el('h3', {}, ['联网搜索配置（Web Search）']),
+      el('p', { class: 'hint' }, ['为「行业研究」提供真实联网检索能力。配置后，在行业研究「② 搜集资料」中可出现「联网检索」并直接把结果喂给 AI 分析。多数搜索 API 允许浏览器跨域；若被 CORS 拦截，可填上方「可选代理」兜底。']),
+      el('div', { class: 'field' }, [el('label', {}, ['搜索服务']), sProvSel]),
+      el('div', { class: 'field' }, [el('label', {}, ['API Key']), sKeyI]),
+      sCustomWrap,
+      el('div', { class: 'field' }, [el('label', {}, ['请求代理（可选）']), sProxyI])
+    ])
+
+    // ---------- 4.6 IMA 知识库配置 ----------
+    const imaCfg = s.ima || { clientId: '', apiKey: '', knowledgeBaseId: '', knowledgeBaseName: '', proxy: '' }
+    const iClientI = el('input', { type: 'text', value: imaCfg.clientId || '', placeholder: 'IMA Client ID' })
+    const iKeyI = el('input', { type: 'password', value: imaCfg.apiKey || '', placeholder: 'IMA API Key' })
+    const iKbI = el('input', { type: 'text', value: imaCfg.knowledgeBaseId || '', placeholder: '知识库 ID（可选，留空检索全部）' })
+    const iProxyI = el('input', { type: 'text', value: imaCfg.proxy || '', placeholder: '可选 · 如 https://代理/?url=' })
+    const saveIma = () => {
+      update((st) => {
+        st.settings.ima = {
+          clientId: iClientI.value.trim(),
+          apiKey: iKeyI.value.trim(),
+          knowledgeBaseId: iKbI.value.trim(),
+          knowledgeBaseName: '',
+          proxy: iProxyI.value.trim()
+        }
+      })
+      markSaved()
+    }
+    ;[iClientI, iKeyI, iKbI, iProxyI].forEach((i) => (i.oninput = saveIma))
+    const imaCard = el('div', { class: 'card' }, [
+      el('h3', {}, ['IMA 知识库配置']),
+      el('p', { class: 'hint' }, ['把你在 ima.qq.com 的 Client ID / API Key 填到这里，「行业研究」即可检索你的个人知识库并纳入 AI 分析。注意：ima.qq.com 主要面向服务端，浏览器直连常被 CORS 拦截；若报错，请填「请求代理」前缀（API 调用走代理不同于网页爬虫，属正常用法）。']),
+      el('div', { class: 'grid cols-2' }, [
+        el('div', { class: 'field' }, [el('label', {}, ['Client ID']), iClientI]),
+        el('div', { class: 'field' }, [el('label', {}, ['API Key']), iKeyI])
+      ]),
+      el('div', { class: 'field' }, [el('label', {}, ['知识库 ID（可选）']), iKbI]),
+      el('div', { class: 'field' }, [el('label', {}, ['请求代理（可选）']), iProxyI])
+    ])
+
     page.append(apiCard)
     page.append(customCard)
     page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
+    page.append(el('div', { class: 'grid cols-2' }, [searchCard, imaCard]))
     page.append(themeCard)
     page.append(dataCard)
     page.append(historyCard)
