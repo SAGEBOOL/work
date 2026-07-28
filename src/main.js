@@ -20,6 +20,7 @@ import { crmPlugin } from './plugins/crm/index.js'
 import { bizAnalysisPlugin } from './plugins/biz-analysis/index.js'
 import { leisurePlugin } from './plugins/leisure/index.js'
 import { gomokuPlugin } from './plugins/gomoku/index.js'
+import { videoEntertainmentPlugin } from './plugins/video-entertainment/index.js'
 import { settingsPlugin } from './settings/settingsPlugin.js'
 
 // 1) 注册所有插件（新增功能只改这一处 + 加一个插件文件）
@@ -35,6 +36,7 @@ registerPlugin(crmPlugin)
 registerPlugin(bizAnalysisPlugin)
 registerPlugin(leisurePlugin)
 registerPlugin(gomokuPlugin)
+registerPlugin(videoEntertainmentPlugin)
 registerPlugin(settingsPlugin)
 
 // 2) 组装外壳
