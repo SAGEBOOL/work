@@ -4,6 +4,8 @@ import { el, clear, toast } from '../../core/ui.js'
 import { lineChart, barChart } from '../../core/charts.js'
 import { callChat } from '../../core/aiGateway.js'
 import { INDUSTRY_PRESETS, getSettings } from '../../core/store.js'
+import { searchWeb } from '../../core/search.js'
+import { searchIMA } from '../../core/ima.js'
 
 const KEY = 'opwb:ir:v1'
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
@@ -116,7 +118,9 @@ export const industryResearchPlugin = {
       chartKind: 'line',
       angle: '综合',
       need: '',
-      insight: ''
+      insight: '',
+      webResults: [],
+      imaResults: []
     }
     const curDs = () => s.datasets.find((d) => d.id === wiz.datasetId)
 
@@ -331,6 +335,101 @@ export const industryResearchPlugin = {
       dsSel2.onchange = refreshNum; numSel2.onchange = drawChart; chartKind2.onchange = drawChart
       refreshNum()
 
+      // —— 资料 A2：联网检索（真实联网搜索，受开关 + 配置控制） ——
+      let webCard = null
+      const dsSettings = getSettings()
+      if (dsSettings.dataSources && dsSettings.dataSources.web) {
+        const searchCfg = dsSettings.search || {}
+        const webInput = el('input', { type: 'text', placeholder: '输入检索关键词，如 2025 非遗 市场规模' })
+        const webStatus = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, [])
+        const webList = el('div', {})
+        let webHits = []
+        const webBtn = el('button', { class: 'btn' }, ['🔍 联网搜索'])
+        webBtn.onclick = async () => {
+          const q = webInput.value.trim()
+          if (!q) { toast('请输入关键词', 'err'); return }
+          if (!searchCfg.key && searchCfg.provider !== 'custom') { toast('请先在「设置 → 联网搜索配置」填写 API Key', 'err'); return }
+          webBtn.disabled = true; webStatus.textContent = '⏳ 检索中…'; webStatus.className = 'muted'; clear(webList)
+          try {
+            webHits = await searchWeb(q, searchCfg)
+            clear(webList)
+            webHits.forEach((h) => {
+              const cb = el('input', { type: 'checkbox' })
+              webList.append(el('label', { class: 'retrieval-item' }, [
+                cb,
+                el('div', {}, [
+                  el('b', {}, [h.title || '(无标题)']),
+                  h.snippet ? el('div', { class: 'muted', style: 'font-size:12px;margin-top:2px' }, [h.snippet]) : null,
+                  h.url ? el('a', { href: h.url, target: '_blank', rel: 'noreferrer', class: 'muted', style: 'font-size:12px;word-break:break-all' }, [h.url]) : null
+                ].filter(Boolean))
+              ]))
+            })
+            webStatus.textContent = '找到 ' + webHits.length + ' 条，勾选后点「加入 AI 分析上下文」'
+          } catch (e) { webStatus.textContent = '✗ ' + e.message; webStatus.className = 'muted err' }
+          finally { webBtn.disabled = false }
+        }
+        const webAdd = el('button', { class: 'btn primary' }, ['加入 AI 分析上下文'])
+        webAdd.onclick = () => {
+          const sel = webHits.filter((_, i) => webList.querySelectorAll('input[type=checkbox]')[i] && webList.querySelectorAll('input[type=checkbox]')[i].checked)
+          if (!sel.length) { toast('请先勾选检索结果', 'err'); return }
+          wiz.webResults = sel
+          toast('已加入 ' + sel.length + ' 条联网检索结果到 AI 上下文', 'ok')
+        }
+        webCard = el('div', { class: 'card', style: 'margin-top:16px' }, [
+          el('h3', {}, ['联网检索（真实联网搜索）']),
+          el('p', { class: 'hint' }, ['调用你在「设置 → 联网搜索配置」里配置的搜索 API。勾选结果后可一键加入下方 AI 分析上下文。']),
+          el('div', { class: 'row', style: 'gap:8px' }, [webInput, webBtn]),
+          webStatus, webList, webAdd
+        ])
+      }
+
+      // —— 资料 A3：IMA 知识库检索（受开关 + 配置控制） ——
+      let imaCard = null
+      if (dsSettings.dataSources && dsSettings.dataSources.ima) {
+        const imaCfg = dsSettings.ima || {}
+        const imaInput = el('input', { type: 'text', placeholder: '输入检索关键词，如 城市更新 案例' })
+        const imaStatus = el('div', { class: 'muted', style: 'font-size:12px;margin-top:6px' }, [])
+        const imaList = el('div', {})
+        let imaHits = []
+        const imaBtn = el('button', { class: 'btn' }, ['🔍 检索知识库'])
+        imaBtn.onclick = async () => {
+          const q = imaInput.value.trim()
+          if (!q) { toast('请输入关键词', 'err'); return }
+          if (!imaCfg.clientId || !imaCfg.apiKey) { toast('请先在「设置 → IMA 知识库配置」填写凭证', 'err'); return }
+          imaBtn.disabled = true; imaStatus.textContent = '⏳ 检索中…'; imaStatus.className = 'muted'; clear(imaList)
+          try {
+            imaHits = await searchIMA(q, imaCfg)
+            clear(imaList)
+            imaHits.forEach((h) => {
+              const cb = el('input', { type: 'checkbox' })
+              imaList.append(el('label', { class: 'retrieval-item' }, [
+                cb,
+                el('div', {}, [
+                  el('b', {}, [h.title || '(无标题)']),
+                  h.kb ? el('div', { class: 'muted', style: 'font-size:12px' }, ['知识库：' + h.kb]) : null,
+                  h.snippet ? el('div', { class: 'muted', style: 'font-size:12px;margin-top:2px' }, [h.snippet]) : null
+                ].filter(Boolean))
+              ]))
+            })
+            imaStatus.textContent = '找到 ' + imaHits.length + ' 条，勾选后点「加入 AI 分析上下文」'
+          } catch (e) { imaStatus.textContent = '✗ ' + e.message + '（若提示 CORS，请在设置填请求代理）'; imaStatus.className = 'muted err' }
+          finally { imaBtn.disabled = false }
+        }
+        const imaAdd = el('button', { class: 'btn primary' }, ['加入 AI 分析上下文'])
+        imaAdd.onclick = () => {
+          const sel = imaHits.filter((_, i) => imaList.querySelectorAll('input[type=checkbox]')[i] && imaList.querySelectorAll('input[type=checkbox]')[i].checked)
+          if (!sel.length) { toast('请先勾选检索结果', 'err'); return }
+          wiz.imaResults = sel
+          toast('已加入 ' + sel.length + ' 条知识库结果到 AI 上下文', 'ok')
+        }
+        imaCard = el('div', { class: 'card', style: 'margin-top:16px' }, [
+          el('h3', {}, ['IMA 知识库检索']),
+          el('p', { class: 'hint' }, ['检索你在 IMA 的个人知识库。勾选结果后可一键加入下方 AI 分析上下文。需先在「设置 → IMA 知识库配置」填写凭证。']),
+          el('div', { class: 'row', style: 'gap:8px' }, [imaInput, imaBtn]),
+          imaStatus, imaList, imaAdd
+        ])
+      }
+
       stepBody.append(
         el('div', { class: 'card' }, [
           el('h3', {}, ['②-1 数据源目录（' + wiz.industry + '）']),
@@ -347,9 +446,11 @@ export const industryResearchPlugin = {
           el('div', { class: 'field' }, [el('label', {}, ['备注']), noteI]),
           addBtn
         ]),
+        webCard,
+        imaCard,
         el('div', { class: 'card', style: 'margin-top:16px' }, [
           el('h3', {}, ['②-2 录入资料（粘贴 / 导入）']),
-          el('p', { class: 'hint' }, ['把从数据源/搜索引擎找到的表格、CSV、JSON（或 xlsx）粘贴或上传到这里，解析后保存为数据集。']),
+          el('p', { class: 'hint' }, ['把从数据源/搜索引擎/知识库找到的表格、CSV、JSON（或 xlsx）粘贴或上传到这里，解析后保存为数据集。']),
           ta,
           el('div', { class: 'row', style: 'gap:8px;margin:8px 0' }, [parseBtn, fileI]),
           preview,
@@ -390,6 +491,8 @@ export const industryResearchPlugin = {
           const sample = d.rows.slice(0, 5).map((r) => d.columns.map((c) => c + '=' + r[c]).join('，')).join('\n')
           return '【数据集】' + d.name + '（' + d.industry + '）\n字段：' + cols + '\n样本：\n' + sample
         }).join('\n\n') : '（未导入数据集）'
+        const webText = wiz.webResults && wiz.webResults.length ? wiz.webResults.map((r, i) => '【联网' + (i + 1) + '】' + (r.title || '') + '\n' + (r.snippet || '') + '\n来源：' + (r.url || '')).join('\n\n') : '（未做联网检索）'
+        const imaText = wiz.imaResults && wiz.imaResults.length ? wiz.imaResults.map((r, i) => '【IMA 知识库' + (i + 1) + '】' + (r.title || '') + (r.kb ? ('（' + r.kb + '）') : '') + '\n' + (r.snippet || '')).join('\n\n') : '（未检索知识库）'
         const angle = angleSel.value
         let angleReq = ''
         if (angle === '政策影响') angleReq = '本次聚焦于【政策影响】：分析相关政策/监管的影响方向与力度、政策红利与风险点，给出合规与机会判断。'
@@ -402,6 +505,8 @@ export const industryResearchPlugin = {
           '\n【分析角度】' + angle +
           '\n\n【已搜集的资料 · 数据源目录】\n' + srcText +
           '\n\n【已搜集的资料 · 数据集】\n' + dsSummary +
+          '\n\n【已搜集的资料 · 联网检索】\n' + webText +
+          '\n\n【已搜集的资料 · IMA 知识库】\n' + imaText +
           '\n\n' + angleReq +
           '\n\n请输出：\n## 一、需求拆解（明确用户真正想解决的问题）\n## 二、关键发现（结合资料，指出趋势/异常/结构性变化）\n## 三、行业对标与建议（结合行业常识与资料给出判断与可执行建议）\n## 四、风险与下一步（需补充的数据/动作）\n## 五、一句话结论'
 
