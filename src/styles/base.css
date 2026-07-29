@@ -512,6 +512,36 @@ body.nav-open { overflow: hidden; }
   .brand .brand-text { font-size: 15px; }
 }
 
+/* 番茄钟 · 右上角迷你计时窗（后台运行时显示，挂在 body 上不受路由卸载影响） */
+.pomo-mini {
+  position: fixed;
+  top: 64px; right: 16px;
+  z-index: 50;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .14);
+  cursor: pointer;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.pomo-mini.hidden { display: none; }
+.pomo-mini .pm-time { font-size: 20px; font-weight: 700; min-width: 54px; text-align: center; }
+.pomo-mini .pm-mode { font-size: 12px; color: var(--text-2); }
+.pomo-mini .pm-btn {
+  border: none; background: var(--panel-2); color: var(--text);
+  width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+  font-size: 14px; display: inline-flex; align-items: center; justify-content: center;
+}
+.pomo-mini .pm-btn:hover { filter: brightness(1.08); }
+
+/* 移动端：顶栏为 sticky，迷你窗落到右下角避免与图标重叠 */
+@media (max-width: 720px) {
+  .pomo-mini { top: auto; bottom: 16px; right: 12px; }
+}
+
 /* ===== 行业研究 · 6 步向导 ===== */
 .wiz-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 16px 0 20px; }
 .wiz-step {
