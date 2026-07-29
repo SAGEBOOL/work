@@ -2,6 +2,7 @@
 // 设计原则：「文字转语音」严格遵循 md-to-mp3 技能 —— 调用微软 Edge 免费 TTS 真实合成（5 个微软音色、默认 0.9×、长文分块、自动清理 Markdown）。
 // 真实 MP3 由本机 edge-tts 服务完成（POST /tts）；朗读/试听在本机服务未启动时自动降级为浏览器原生语音，保证页面始终可用。
 import { el, clear, toast } from '../../core/ui.js'
+import Hls from 'hls.js'
 
 // 注意：原需求中地址为 tv.mydsart.wokr，按域名惯例修正为 .work
 const TV_URL = 'https://tv.mydsart.work/'
@@ -12,6 +13,50 @@ const TTS_BASE = isLocalHost ? location.origin : 'http://127.0.0.1:8765'
 // —— 本地持久化（与全站 opwb:* 约定一致）——
 const LS = (k, d) => { try { const v = localStorage.getItem('opwb:tts:' + k); return v == null ? d : v } catch (e) { return d } }
 const LSset = (k, v) => { try { localStorage.setItem('opwb:tts:' + k, v) } catch (e) {} }
+
+// —— 网络电视（IPTV）本地持久化与默认数据 ——
+const iptvLS = (k, d) => { try { const v = localStorage.getItem('opwb:iptv:' + k); return v == null ? d : v } catch (e) { return d } }
+const iptvLSset = (k, v) => { try { localStorage.setItem('opwb:iptv:' + k, v) } catch (e) {} }
+
+// 内置演示流：用于验证播放器可用（全球可用性取决于网络）。
+const IPTV_DEMO = [
+  { group: '🎬 演示流', name: 'Apple HLS 测试', url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8', note: 'HLS 测试流，确认播放器可用' },
+  { group: '🎬 演示流', name: 'Mux HLS 测试', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', note: 'HLS 测试流' }
+]
+// 一键载入预设（iptv-org 公开播放列表，可能受网络 / 跨域影响）。
+const IPTV_PRESETS = [
+  { name: '全球精选', url: 'https://iptv-org.github.io/iptv/index.m3u' },
+  { name: '中国频道', url: 'https://iptv-org.github.io/iptv/countries/cn.m3u' },
+  { name: '新闻', url: 'https://iptv-org.github.io/iptv/categories/news.m3u' },
+  { name: '体育', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u' }
+]
+
+// 解析 m3u / m3u8 文本为标准频道数组
+function parseM3U(text) {
+  const lines = String(text || '').split(/\r?\n/)
+  const out = []
+  let cur = null
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith('#EXTINF')) {
+      const comma = line.indexOf(',')
+      const meta = comma > -1 ? line.slice(0, comma) : line
+      const name = comma > -1 ? line.slice(comma + 1).trim() : '频道'
+      const g = meta.match(/group-title="([^"]*)"/i)
+      cur = { name: name || '频道', group: g ? g[1] : '导入' }
+    } else if (line.startsWith('#EXTGRP:')) {
+      const gname = line.slice(8).trim()
+      if (cur) cur.group = gname || cur.group
+    } else if (line.startsWith('#')) {
+      continue
+    } else {
+      if (cur) { cur.url = line; out.push(cur); cur = null }
+      else out.push({ name: '频道', group: '导入', url: line })
+    }
+  }
+  return out
+}
 
 // —— 清理 Markdown（忠实复刻 md_to_mp3.py 的 strip_markdown，提取纯净正文）——
 function cleanMarkdown(text) {
@@ -107,9 +152,9 @@ function renderTv(panel) {
   const go = () => window.open(TV_URL, '_blank', 'noopener')
   const card = el('div', { class: 'card', style: 'text-align:center;padding:36px 20px' }, [
     el('div', { style: 'font-size:52px;margin-bottom:10px' }, ['📺']),
-    el('div', { style: 'font-size:18px;font-weight:700;margin-bottom:4px' }, ['DSArt 视频娱乐站']),
+    el('div', { style: 'font-size:18px;font-weight:700;margin-bottom:4px' }, ['DSArt 私人电影院']),
     el('div', { class: 'muted' }, [TV_URL]),
-    el('button', { class: 'btn primary', style: 'margin-top:18px;font-size:16px;padding:12px 30px', onclick: go }, ['前往视频娱乐站 →'])
+    el('button', { class: 'btn primary', style: 'margin-top:18px;font-size:16px;padding:12px 30px', onclick: go }, ['前往私人电影院 →'])
   ])
   panel.append(
     el('p', { class: 'sub' }, ['外部视频站点，点击下方按钮在新标签页打开（不离开本工作台）。']),
@@ -483,6 +528,233 @@ function renderRadio(panel) {
   renderList(); updateFavBtn()
 }
 
+// —— 标签④：网络电视（站内直接播放全球 IPTV；HLS 由 hls.js 解码）——
+let iptvCleanup = null
+
+function renderIPTV(panel) {
+  let hls = null
+  let current = null
+  let favSet = new Set(); try { favSet = new Set(JSON.parse(iptvLS('fav', '[]')) || []) } catch (e) {}
+  let vol = parseFloat(iptvLS('vol', '1')) || 1
+
+  const video = el('video', { controls: true, playsinline: '', style: 'width:100%;aspect-ratio:16/9;background:#000;border-radius:12px;display:block' })
+  video.volume = vol
+
+  const nowName = el('span', { style: 'font-weight:700' }, ['—'])
+  const nowState = el('span', { class: 'muted', style: 'margin-left:8px' }, ['未播放'])
+  const status = el('div', { class: 'alert' }, ['选择频道开始播放；首次播放请点击视频上的播放键（浏览器限制自动播放）。'])
+  const stopBtn = el('button', { class: 'btn' }, ['⏹ 停止'])
+  const favBtn = el('button', { class: 'btn' }, ['☆ 收藏当前'])
+  const volRange = el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(vol) })
+  const volVal = el('span', { class: 'muted' }, [Math.round(vol * 100) + '%'])
+
+  const searchInput = el('input', { type: 'text', placeholder: '搜索频道名称…', style: 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const groupSel = el('select', { style: 'padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+
+  const urlInput = el('input', { type: 'text', placeholder: '播放列表 m3u 地址（如 iptv-org 国家/分类 m3u）', style: 'flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const importBtn = el('button', { class: 'btn primary' }, ['导入播放列表'])
+  const pasteArea = el('textarea', { placeholder: '或在此粘贴 m3u 文本（从其他来源复制，避开跨域限制）…', style: 'width:100%;min-height:70px;resize:vertical;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px' })
+  const parseBtn = el('button', { class: 'btn' }, ['解析文本'])
+
+  const nameInput = el('input', { type: 'text', placeholder: '频道名称', style: 'flex:1;min-width:120px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const chUrlInput = el('input', { type: 'text', placeholder: '频道流地址 .m3u8 / .mp4 等', style: 'flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const addBtn = el('button', { class: 'btn primary' }, ['＋ 添加频道'])
+
+  const listBox = el('div', { style: 'max-height:380px;overflow:auto' })
+
+  const allChannels = () => {
+    let custom = []; try { custom = JSON.parse(iptvLS('custom', '[]')) || [] } catch (e) {}
+    let imported = []; try { imported = JSON.parse(iptvLS('imported', '[]')) || [] } catch (e) {}
+    return IPTV_DEMO.map(c => ({ ...c, src: 'demo' })).concat(custom, imported)
+  }
+
+  function stopPlayback() {
+    if (hls) { try { hls.destroy() } catch (e) {} hls = null }
+    try { video.pause(); video.removeAttribute('src'); video.load() } catch (e) {}
+    current = null
+    nowName.textContent = '—'; nowState.textContent = '未播放'
+    renderList(); updateFavBtn()
+  }
+
+  function playChannel(ch) {
+    stopPlayback()
+    current = ch
+    nowName.textContent = ch.name
+    nowState.textContent = '连接中…'
+    status.className = 'alert'; status.textContent = '⏳ 连接中：' + ch.name + ' …'
+    const isHls = /m3u8/i.test(ch.url)
+    const nativeHls = video.canPlayType('application/vnd.apple.mpegurl')
+    if (isHls && !nativeHls && Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true })
+      hls.loadSource(ch.url)
+      hls.attachMedia(video)
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { const p = video.play(); if (p && p.catch) p.catch(() => { nowState.textContent = '▶ 已就绪，请点播放' }) })
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (!data.fatal) return
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { status.className = 'alert err'; status.textContent = '✗ 网络错误：该流可能受网络限制或不可用'; try { hls.startLoad() } catch (e) {} }
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { status.className = 'alert err'; status.textContent = '✗ 媒体解码错误'; try { hls.recoverMediaError() } catch (e) {} }
+        else { status.className = 'alert err'; status.textContent = '✗ 无法播放该频道（流不可用 / 网络限制）'; stopPlayback() }
+      })
+    } else {
+      video.src = ch.url
+      const p = video.play(); if (p && p.catch) p.catch(() => { nowState.textContent = '▶ 已就绪，请点播放' })
+    }
+    video.onplaying = () => { nowState.textContent = '● 播放中'; status.className = 'alert ok'; status.textContent = '● 正在播放：' + ch.name }
+    video.onerror = () => { nowState.textContent = '✗ 失败'; status.className = 'alert err'; status.textContent = '✗ 该频道流不可用（可能受网络限制或已失效），换一个或添加可用源' }
+    renderList(); updateFavBtn()
+  }
+
+  function toggleFav(ch) {
+    if (favSet.has(ch.name)) favSet.delete(ch.name); else favSet.add(ch.name)
+    iptvLSset('fav', JSON.stringify([...favSet]))
+    renderList(); updateFavBtn()
+  }
+  function updateFavBtn() {
+    const on = current && favSet.has(current.name)
+    favBtn.textContent = on ? '★ 已收藏' : '☆ 收藏当前'
+  }
+
+  function removeChannel(ch, kind) {
+    if (kind === 'custom') { let a = []; try { a = JSON.parse(iptvLS('custom', '[]')) || [] } catch (e) {}; a = a.filter(x => x.url !== ch.url && x.name !== ch.name); iptvLSset('custom', JSON.stringify(a)) }
+    if (kind === 'imported') { let a = []; try { a = JSON.parse(iptvLS('imported', '[]')) || [] } catch (e) {}; a = a.filter(x => x.url !== ch.url && x.name !== ch.name); iptvLSset('imported', JSON.stringify(a)) }
+    if (current && current.url === ch.url) stopPlayback()
+    renderList(); toast('已移除：' + ch.name)
+  }
+
+  function buildGroupOptions() {
+    const groups = new Set()
+    for (const c of allChannels()) groups.add(c.group)
+    const cur = groupSel.value
+    clear(groupSel)
+    groupSel.append(el('option', { value: 'all' }, ['全部频道']))
+    groupSel.append(el('option', { value: 'fav' }, ['★ 我的收藏']))
+    for (const g of [...groups].sort()) groupSel.append(el('option', { value: g }, [g]))
+    if ([...groupSel.options].some(o => o.value === cur)) groupSel.value = cur
+  }
+
+  function appendGroup(title, arr) {
+    if (!arr.length) return
+    listBox.append(el('div', { style: 'font-weight:700;margin:12px 0 8px;color:var(--text)' }, [title]))
+    for (const c of arr) {
+      const kind = c.src === 'demo' ? null : (c.src === 'custom' ? 'custom' : 'imported')
+      const active = current && current.url === c.url
+      const fav = favSet.has(c.name)
+      listBox.append(el('div', {
+        class: 'radio-row',
+        style: 'display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid var(--border);margin-bottom:8px;background:var(--bg);transition:.15s' + (active ? ';border-color:var(--primary);background:var(--panel-2)' : ''),
+        onclick: () => playChannel(c)
+      }, [
+        el('span', { style: 'font-size:18px' }, [active ? '🔊' : '📡']),
+        el('div', { style: 'flex:1;min-width:0' }, [
+          el('div', { style: 'font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, [c.name + (active ? ' · 播放中' : '')]),
+          el('div', { class: 'muted', style: 'font-size:12px' }, [(c.group || '') + (c.note ? ' · ' + c.note : '')])
+        ]),
+        el('button', { class: 'btn', style: 'padding:4px 10px', onclick: (e) => { e.stopPropagation(); toggleFav(c) } }, [fav ? '★' : '☆']),
+        kind ? el('button', { class: 'btn', style: 'padding:4px 10px', onclick: (e) => { e.stopPropagation(); removeChannel(c, kind) } }, ['✕']) : null
+      ].filter(Boolean)))
+    }
+  }
+
+  function renderList() {
+    clear(listBox)
+    const list = allChannels()
+    const q = (searchInput.value || '').trim().toLowerCase()
+    const gf = groupSel.value
+    const favs = list.filter(c => favSet.has(c.name))
+    if (gf !== 'fav' && favs.length) appendGroup('⭐ 我的收藏', favs)
+    const map = {}
+    for (const c of list) {
+      if (favSet.has(c.name) && gf === 'all') continue
+      if (q && !c.name.toLowerCase().includes(q)) continue
+      if (gf !== 'all' && gf !== 'fav' && c.group !== gf) continue
+      ;(map[c.group] ||= []).push(c)
+    }
+    const keys = Object.keys(map).sort()
+    for (const k of keys) appendGroup(k, map[k])
+    if (!listBox.children.length) listBox.append(el('p', { class: 'muted' }, ['暂无频道，使用上方「导入播放列表 / 添加频道」加载全球电视源。']))
+  }
+
+  async function doImport(url) {
+    if (!/^https?:\/\//i.test(url)) { toast('请输入有效的 http(s) 播放列表地址', 'err'); return }
+    importBtn.disabled = true; status.className = 'alert'; status.textContent = '⏳ 正在获取播放列表…'
+    try {
+      const resp = await fetch(url, { mode: 'cors' })
+      if (!resp.ok) throw new Error('HTTP ' + resp.status)
+      const text = await resp.text()
+      const chs = parseM3U(text)
+      if (!chs.length) throw new Error('未解析到频道')
+      iptvLSset('imported', JSON.stringify(chs))
+      buildGroupOptions(); renderList()
+      status.className = 'alert ok'; status.textContent = '✓ 已导入 ' + chs.length + ' 个频道'
+      toast('已导入 ' + chs.length + ' 个频道')
+    } catch (e) {
+      status.className = 'alert err'; status.textContent = '✗ 导入失败：' + e.message + '（可能跨域受限；请改用「粘贴 m3u 文本」或手动添加）'
+      toast('导入失败，可粘贴文本或手动添加', 'err')
+    } finally { importBtn.disabled = false }
+  }
+
+  stopBtn.onclick = stopPlayback
+  favBtn.onclick = () => { if (current) toggleFav(current); else toast('请先播放一个频道', 'err') }
+  volRange.oninput = () => { vol = parseFloat(volRange.value); video.volume = vol; volVal.textContent = Math.round(vol * 100) + '%'; iptvLSset('vol', String(vol)) }
+  searchInput.oninput = renderList
+  groupSel.onchange = renderList
+  importBtn.onclick = () => { if (urlInput.value.trim()) doImport(urlInput.value.trim()) }
+  parseBtn.onclick = () => {
+    const chs = parseM3U(pasteArea.value)
+    if (!chs.length) { toast('未解析到频道', 'err'); return }
+    iptvLSset('imported', JSON.stringify(chs))
+    buildGroupOptions(); renderList()
+    status.className = 'alert ok'; status.textContent = '✓ 已从文本解析 ' + chs.length + ' 个频道'
+    toast('已解析 ' + chs.length + ' 个频道')
+  }
+  addBtn.onclick = () => {
+    const name = nameInput.value.trim(); const url = chUrlInput.value.trim()
+    if (!name || !url) { toast('请填写名称和流地址', 'err'); return }
+    if (!/^https?:\/\//i.test(url)) { toast('流地址需以 http(s):// 开头', 'err'); return }
+    let custom = []; try { custom = JSON.parse(iptvLS('custom', '[]')) || [] } catch (e) {}
+    custom.push({ name, url, group: '我的频道', src: 'custom' })
+    iptvLSset('custom', JSON.stringify(custom))
+    nameInput.value = ''; chUrlInput.value = ''
+    buildGroupOptions(); renderList(); toast('已添加：' + name); playChannel({ name, url, group: '我的频道' })
+  }
+
+  const presetRow = el('div', { class: 'row', style: 'flex-wrap:wrap;gap:8px;margin-top:10px' },
+    IPTV_PRESETS.map(p => el('button', { class: 'btn', style: 'padding:6px 12px', onclick: () => doImport(p.url) }, ['⚡ ' + p.name]))
+  )
+
+  panel.append(
+    el('p', { class: 'sub' }, ['网络电视：在站内直接播放全球 IPTV 频道。HLS(.m3u8) 由 hls.js 解码，主流浏览器均可播放。内置演示流用于验证；点击「⚡ 预设」或「导入播放列表」加载全球频道（可用性取决于你的网络；若跨域失败，可粘贴 m3u 文本或手动添加）。']),
+    el('div', { class: 'card' }, [
+      video,
+      el('div', { class: 'row', style: 'align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px' }, [
+        el('div', { style: 'flex:1;min-width:180px' }, [el('div', { class: 'muted' }, ['正在播放']), el('div', { style: 'font-size:15px' }, [nowName, nowState])]),
+        favBtn, stopBtn
+      ]),
+      el('div', { class: 'row', style: 'align-items:center;gap:8px;margin-top:8px' }, [el('span', { class: 'muted' }, ['音量']), volRange, volVal]),
+      status
+    ]),
+    el('div', { class: 'card', style: 'margin-top:16px' }, [
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [searchInput, groupSel]),
+      el('div', { class: 'field', style: 'margin-top:12px' }, [el('label', {}, ['导入播放列表（m3u 地址）']),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [urlInput, importBtn])
+      ]),
+      el('details', { style: 'margin-top:8px' }, [
+        el('summary', { style: 'cursor:pointer;color:var(--text-2);font-size:13px' }, ['或粘贴 m3u 文本（避开跨域限制）']),
+        el('div', { style: 'margin-top:8px' }, [pasteArea, el('div', { class: 'row', style: 'margin-top:8px' }, [parseBtn])])
+      ]),
+      el('div', { class: 'field', style: 'margin-top:12px' }, [el('label', {}, ['添加单个频道']),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [nameInput, chUrlInput, addBtn])
+      ]),
+      el('div', { class: 'muted', style: 'margin-top:10px' }, ['⚡ 一键载入预设全球频道（iptv-org，可能受网络 / 跨域影响）：']),
+      presetRow
+    ]),
+    el('div', { class: 'card', style: 'margin-top:16px' }, [listBox])
+  )
+
+  buildGroupOptions(); renderList(); updateFavBtn()
+  iptvCleanup = stopPlayback
+}
+
 export const videoEntertainmentPlugin = {
   id: 'video-entertainment',
   name: '视频娱乐',
@@ -490,9 +762,10 @@ export const videoEntertainmentPlugin = {
   group: '休闲娱乐',
   mount(root) {
     const tabsDef = [
-      { label: '📺 视频娱乐站', render: renderTv },
+      { label: '📺 私人电影院', render: renderTv },
       { label: '🔊 文字转音频', render: renderTextToAudio },
-      { label: '📻 网络收音机', render: renderRadio }
+      { label: '📻 网络收音机', render: renderRadio },
+      { label: '📡 网络电视', render: renderIPTV }
     ]
     const seg = el('div', { class: 'seg' })
     const buttons = tabsDef.map((t, i) => {
@@ -502,6 +775,7 @@ export const videoEntertainmentPlugin = {
     })
     const panel = el('div', {})
     const setTab = (i) => {
+      if (typeof iptvCleanup === 'function') { try { iptvCleanup() } catch (e) {} iptvCleanup = null }
       buttons.forEach((b, idx) => b.classList.toggle('on', idx === i))
       clear(panel)
       tabsDef[i].render(panel)
