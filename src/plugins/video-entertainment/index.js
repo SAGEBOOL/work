@@ -1,6 +1,6 @@
 // 视频娱乐：①外部视频站点入口（原功能）②文字转音频
-// 设计原则：核心「文字转语音」严格遵循 md-to-mp3 技能 —— 调用微软 Edge 免费 TTS 真实合成（5 个微软音色、默认 0.9×、长文分块、自动清理 Markdown）。
-// 合成由本机 edge-tts 服务完成（POST /tts），浏览器端拿到真实 MP3 后播放/下载；无任何浏览器自带机械音。
+// 设计原则：「文字转语音」严格遵循 md-to-mp3 技能 —— 调用微软 Edge 免费 TTS 真实合成（5 个微软音色、默认 0.9×、长文分块、自动清理 Markdown）。
+// 真实 MP3 由本机 edge-tts 服务完成（POST /tts）；朗读/试听在本机服务未启动时自动降级为浏览器原生语音，保证页面始终可用。
 import { el, clear, toast } from '../../core/ui.js'
 
 // 注意：原需求中地址为 tv.mydsart.wokr，按域名惯例修正为 .work
@@ -65,6 +65,43 @@ async function localTTS(text, voice, ratePct) {
   return await resp.blob()
 }
 
+// —— 浏览器原生语音兜底（服务未启动时也能朗读/试听，并按技能音色名称匹配）——
+const VOICES = [
+  { id: 'zh-CN-YunxiNeural', name: '男声·云希（默认·小说朗读）', kw: 'yunxi' },
+  { id: 'zh-CN-XiaoxiaoNeural', name: '女声·晓晓（温和）', kw: 'xiaoxiao' },
+  { id: 'zh-CN-YunyangNeural', name: '男声·云扬（新闻播报）', kw: 'yunyang' },
+  { id: 'zh-CN-XiaoyiNeural', name: '女声·晓伊（活泼）', kw: 'xiaoyi' },
+  { id: 'zh-CN-YunyeNeural', name: '男声·云野（温和）', kw: 'yunye' }
+]
+
+function loadBrowserVoices(ss = (typeof window !== 'undefined' ? window.speechSynthesis : null)) {
+  return new Promise((resolve) => {
+    const voices = ss ? ss.getVoices() : []
+    if (voices && voices.length) { resolve(voices); return }
+    if (ss) {
+      ss.onvoiceschanged = () => resolve(ss.getVoices())
+    }
+    setTimeout(() => resolve(ss ? ss.getVoices() : []), 5000)
+  })
+}
+function matchBrowserVoice(voiceId, voices) {
+  if (!voices || !voices.length) return null
+  const cfg = VOICES.find(v => v.id === voiceId) || VOICES[0]
+  const hay = (v) => (v.voiceURI + ' ' + v.name + ' ' + (v.lang || '')).toLowerCase()
+  // 1. 按技能定义的关键词匹配（如 yunxi / xiaoxiao）
+  let hit = voices.find(v => cfg.kw && hay(v).includes(cfg.kw))
+  if (hit) return hit
+  // 2. 按 ID 关键词匹配
+  const key = voiceId.replace(/^zh-CN-/, '').replace(/Neural$/i, '').toLowerCase()
+  hit = voices.find(v => hay(v).includes(key))
+  if (hit) return hit
+  // 3. 匹配任意中文语音
+  const zh = voices.filter(v => (v.lang || '').toLowerCase().startsWith('zh'))
+  if (zh.length) return zh[0]
+  // 4. 兜底第一个
+  return voices[0]
+}
+
 // —— 标签①：视频娱乐站 ——
 function renderTv(panel) {
   const go = () => window.open(TV_URL, '_blank', 'noopener')
@@ -93,13 +130,6 @@ function renderTextToAudio(panel) {
   const charCount = el('span', { class: 'muted' }, ['0 字'])
 
   // —— 音色：严格采用 md-to-mp3 技能定义的 5 个微软 Edge Neural 音色 ——
-  const VOICES = [
-    { id: 'zh-CN-YunxiNeural', name: '男声·云希（默认·小说朗读）' },
-    { id: 'zh-CN-XiaoxiaoNeural', name: '女声·晓晓（温和）' },
-    { id: 'zh-CN-YunyangNeural', name: '男声·云扬（新闻播报）' },
-    { id: 'zh-CN-XiaoyiNeural', name: '女声·晓伊（活泼）' },
-    { id: 'zh-CN-YunyeNeural', name: '男声·云野（温和）' }
-  ]
   const voiceSel = el('select', {})
   for (const v of VOICES) voiceSel.append(el('option', { value: v.id }, [v.name]))
   const savedVoice = LS('voiceId', 'zh-CN-YunxiNeural')
@@ -110,6 +140,25 @@ function renderTextToAudio(panel) {
   const rate = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: LS('rate', '0.9') })
   const rateVal = el('span', { class: 'muted' }, [(+rate.value).toFixed(2) + '×'])
   const computeRatePct = () => { const pct = Math.round((+rate.value - 1) * 100); return (pct > 0 ? '+' : '') + pct + '%' }
+
+  // 服务未启动时：用浏览器原生语音按技能音色名称匹配，保证页面始终可朗读/试听
+  const browserSpeak = async (text, snippet) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      throw new Error('当前浏览器不支持语音朗读')
+    }
+    const voices = await loadBrowserVoices(window.speechSynthesis)
+    if (!voices.length) throw new Error('浏览器未找到可用语音包')
+    const v = matchBrowserVoice(voiceSel.value, voices)
+    const SSU = window.SpeechSynthesisUtterance || SpeechSynthesisUtterance
+    const u = new SSU(snippet ? text.slice(0, 200) : text)
+    u.voice = v
+    u.lang = 'zh-CN'
+    u.rate = +rate.value
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(u)
+    status.className = 'alert ok'
+    status.textContent = '🔊 浏览器朗读中（' + (v ? v.name : voiceName()) + '，' + (+rate.value).toFixed(2) + '×）' + (snippet ? '：试听前几句' : '')
+  }
 
   // —— 状态 / 进度 / 播放 ——
   const status = el('div', { class: 'alert' }, ['检测本机服务中…'])
@@ -123,6 +172,15 @@ function renderTextToAudio(panel) {
   const downloadBtn = el('button', { class: 'btn primary' }, ['⬇ 下载 MP3'])
   const audioEl = el('audio', { controls: true, style: 'width:100%;margin-top:10px' })
   downloadBtn.disabled = true
+  downloadBtn.onclick = async () => {
+    if (!currentBlobUrl) {
+      if (!serverOk) { toast('请先在终端运行 python run-workbench.py 启动本机语音服务', 'err'); return }
+      await gen(false)
+      return
+    }
+    const fname = (fileNameInput.value.trim() || ('tts-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-'))) + '.mp3'
+    const a = el('a', { href: currentBlobUrl, download: fname }); document.body.append(a); a.click(); a.remove()
+  }
 
   let currentBlobUrl = null
   let serverOk = false
@@ -132,19 +190,25 @@ function renderTextToAudio(panel) {
   const copyBtn = el('button', { class: 'btn', style: 'padding:4px 10px' }, ['复制'])
   copyBtn.onclick = () => { try { navigator.clipboard.writeText(makeCmd()); toast('已复制命令') } catch (e) { toast('复制失败，请手动复制', 'err') } }
   const hint = el('div', { class: 'alert', style: 'margin-top:10px' }, [
-    el('span', {}, ['💡 本功能调用微软 Edge 语音（与 md-to-mp3 技能一致）。在本机终端运行一行命令即可启用：']),
+    el('span', {}, ['💡 朗读/试听当前可直接使用；如需下载微软 Edge 真实 MP3，请在本机终端运行：']),
     el('code', { style: 'display:inline-block;background:var(--panel-2);padding:6px 10px;border-radius:8px;margin:0 8px;font-size:13px' }, [makeCmd()]),
     copyBtn
   ])
 
   const setServerUI = () => {
     const ok = serverOk
-    playBtn.disabled = !ok
-    previewBtn.disabled = !ok
+    // 朗读/试听始终可用（服务未启动时自动降级为浏览器原生语音）
+    playBtn.disabled = false
+    previewBtn.disabled = false
     downloadBtn.disabled = !ok && !currentBlobUrl
     hint.style.display = ok ? 'none' : ''
-    if (ok) { status.className = 'alert ok'; status.textContent = '✓ 已连接本机 Edge TTS 服务，可生成语音' }
-    else if (status.textContent.indexOf('合成') < 0 && status.textContent.indexOf('完成') < 0 && status.textContent.indexOf('失败') < 0) { status.className = 'alert'; status.textContent = '· 未连接本机服务：运行命令后刷新即可（见下方）' }
+    if (ok) {
+      if (status.textContent.indexOf('合成') < 0 && status.textContent.indexOf('完成') < 0 && status.textContent.indexOf('朗读中') < 0 && status.textContent.indexOf('失败') < 0) {
+        status.className = 'alert ok'; status.textContent = '✓ 已连接本机 Edge TTS 服务，可合成真实 MP3'
+      }
+    } else if (status.textContent.indexOf('合成') < 0 && status.textContent.indexOf('完成') < 0 && status.textContent.indexOf('朗读中') < 0 && status.textContent.indexOf('失败') < 0) {
+      status.className = 'alert'; status.textContent = '· 未连接本机服务：朗读/试听仍可用；下载 MP3 请运行下方命令启动服务'
+    }
   }
 
   const checkServer = async () => {
@@ -156,11 +220,8 @@ function renderTextToAudio(panel) {
     return serverOk
   }
 
-  // —— 生成（合成真实 MP3，可播放 / 可下载）——
-  const gen = async (snippet) => {
-    if (!serverOk) { await checkServer(); if (!serverOk) { toast('请先在本机运行命令启动服务（见下方提示）', 'err'); return } }
-    const full = cleanMarkdown(textArea.value)
-    if (!full.trim()) { toast('没有可转换的文本', 'err'); return }
+  // —— edge-tts 真实合成（需要本机服务）——
+  const genEdgeTTS = async (full, snippet) => {
     const text = snippet ? full.slice(0, 200) : full
     const name = voiceName()
     status.className = 'alert'; status.textContent = '⏳ 正在用微软 Edge 语音合成（' + name + '，' + (+rate.value).toFixed(2) + '×）…'
@@ -169,14 +230,29 @@ function renderTextToAudio(panel) {
       if (currentBlobUrl) { try { URL.revokeObjectURL(currentBlobUrl) } catch (e) {} }
       currentBlobUrl = URL.createObjectURL(blob)
       audioEl.src = currentBlobUrl
-      const fname = (fileNameInput.value.trim() || ('tts-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-'))) + '.mp3'
       downloadBtn.disabled = false
-      downloadBtn.onclick = () => { const a = el('a', { href: currentBlobUrl, download: fname }); document.body.append(a); a.click(); a.remove() }
       status.className = 'alert ok'; status.textContent = '✓ 合成完成：' + (blob.size / 1024).toFixed(1) + ' KB' + (snippet ? '（试听前几句）' : '')
       const pp = audioEl.play(); if (pp && typeof pp.catch === 'function') pp.catch(() => {})
       saveHistory({ name: (full.slice(0, 12) || '未命名') + '…', kind: 'tts', rate: (+rate.value).toFixed(2), time: Date.now() }); renderHistory()
     } catch (e) {
       status.className = 'alert err'; status.textContent = '✗ ' + e.message
+    }
+  }
+
+  // —— 朗读/试听：优先 edge-tts 真实合成，服务未启动时降级为浏览器原生语音 ——
+  const gen = async (snippet) => {
+    const full = cleanMarkdown(textArea.value)
+    if (!full.trim()) { toast('没有可转换的文本', 'err'); return }
+    // 若服务尚未确认，先快速检测一次
+    if (!serverOk) await checkServer()
+    if (serverOk) {
+      await genEdgeTTS(full, snippet)
+    } else {
+      try {
+        await browserSpeak(full, snippet)
+      } catch (e) {
+        status.className = 'alert err'; status.textContent = '✗ ' + e.message
+      }
     }
   }
   playBtn.onclick = () => gen(false)
@@ -231,7 +307,7 @@ function renderTextToAudio(panel) {
   const pollTimer = setInterval(async () => { if (serverOk || ++poll > 8) { clearInterval(pollTimer); return } await checkServer() }, 3000)
 
   panel.append(
-    el('p', { class: 'sub' }, ['调用微软 Edge 免费 TTS 真实合成语音（与 md-to-mp3 技能完全一致）：5 个微软音色、默认 0.9×、自动清理 Markdown、长文按句分块。需在本机启动语音服务（一行命令）。']),
+    el('p', { class: 'sub' }, ['调用微软 Edge 免费 TTS 真实合成语音（与 md-to-mp3 技能一致）：5 个微软音色、默认 0.9×、自动清理 Markdown、长文按句分块。朗读/试听无需安装；下载真实 MP3 时在本机启动一行命令服务即可。']),
     el('div', { class: 'card' }, [
       el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, [loadBtn, charCount]),
       fileInput, textArea,
