@@ -1,4 +1,4 @@
-// 视频娱乐：①外部视频站点入口（原功能）②文字转音频
+// 视频娱乐：①外部视频站点入口（原功能）②文字转音频 ③网络收音机
 // 设计原则：「文字转语音」严格遵循 md-to-mp3 技能 —— 调用微软 Edge 免费 TTS 真实合成（5 个微软音色、默认 0.9×、长文分块、自动清理 Markdown）。
 // 真实 MP3 由本机 edge-tts 服务完成（POST /tts）；朗读/试听在本机服务未启动时自动降级为浏览器原生语音，保证页面始终可用。
 import { el, clear, toast } from '../../core/ui.js'
@@ -326,6 +326,163 @@ function renderTextToAudio(panel) {
   )
 }
 
+// —— 标签③：网络收音机 ——
+function renderRadio(panel) {
+  // 默认示例电台：直连音频流（HTTPS Icecast，支持 <audio> 原生播放，全球可用）
+  const DEFAULTS = [
+    { cat: '🎵 音乐 · 放松', items: [
+      { name: 'Groove Salad', url: 'https://ice1.somafm.com/groovesalad-128-mp3', note: '舒缓氛围电子' },
+      { name: 'Drone Zone', url: 'https://ice1.somafm.com/dronezone-128-mp3', note: '极简 / 氛围' },
+      { name: 'Lush', url: 'https://ice1.somafm.com/lush-128-mp3', note: '人声流行' },
+      { name: 'Fluid', url: 'https://ice1.somafm.com/fluid-128-mp3', note: '液态爵士' }
+    ]},
+    { cat: '🎸 独立 / 流行', items: [
+      { name: 'Indie Pop Rocks', url: 'https://ice1.somafm.com/indiepop-128-mp3', note: '独立流行' },
+      { name: 'Beat Blender', url: 'https://ice1.somafm.com/beatblender-128-mp3', note: '深度浩室' },
+      { name: 'Secret Agent', url: 'https://ice1.somafm.com/secretagent-128-mp3', note: '爵士 / 摇摆' }
+    ]},
+    { cat: '🎹 爵士 / 古典', items: [
+      { name: 'Sonic Universe', url: 'https://ice1.somafm.com/sonicuniverse-128-mp3', note: '现代爵士' },
+      { name: 'Bohemian', url: 'https://ice1.somafm.com/bohemian-128-mp3', note: '古典室内乐' },
+      { name: 'Space Station', url: 'https://ice1.somafm.com/spacestation-128-mp3', note: '太空合成器' }
+    ]}
+  ]
+
+  const LSr = (k, d) => { try { const v = localStorage.getItem('opwb:radio:' + k); return v == null ? d : v } catch (e) { return d } }
+  const LSrSet = (k, v) => { try { localStorage.setItem('opwb:radio:' + k, v) } catch (e) {} }
+
+  let favSet = new Set(); try { favSet = new Set(JSON.parse(LSr('fav', '[]')) || []) } catch (e) {}
+  let custom = []; try { custom = JSON.parse(LSr('custom', '[]')) || [] } catch (e) {}
+  let vol = parseFloat(LSr('vol', '1')) || 1
+
+  const audio = el('audio', { controls: true, style: 'width:100%;margin-top:10px' })
+  audio.volume = vol
+
+  let current = null  // { name, url, note }
+  const nowName = el('span', { style: 'font-weight:700' }, ['—'])
+  const nowState = el('span', { class: 'muted', style: 'margin-left:8px' }, ['未播放'])
+  const favBtn = el('button', { class: 'btn' }, ['☆ 收藏当前'])
+  const stopBtn = el('button', { class: 'btn' }, ['⏹ 停止'])
+  const volRange = el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(vol) })
+  const volVal = el('span', { class: 'muted' }, [Math.round(vol * 100) + '%'])
+  const listBox = el('div', {})
+
+  const allStations = () => {
+    const def = []
+    for (const g of DEFAULTS) for (const s of g.items) def.push(s)
+    return def.concat(custom)
+  }
+
+  const playStation = (st) => {
+    try {
+      audio.src = st.url
+      const p = audio.play()
+      if (p && typeof p.catch === 'function') p.catch(() => { nowState.textContent = '⚠ 浏览器拦截，请再点一次'; toast('播放被拦截，请再次点击该电台', 'err') })
+      current = st
+      nowName.textContent = st.name
+      nowState.textContent = '缓冲中…'
+      renderList()
+      updateFavBtn()
+    } catch (e) {
+      toast('无法播放：' + st.name, 'err')
+    }
+  }
+
+  audio.onplaying = () => { nowState.textContent = '● 正在播放' }
+  audio.onpause = () => { if (current) nowState.textContent = '⏸ 已暂停' }
+  audio.onerror = () => { nowState.textContent = '✗ 流不可用'; toast('该电台流暂时不可用，可尝试其他或检查网络', 'err') }
+
+  const stopPlay = () => {
+    audio.pause(); try { audio.removeAttribute('src'); audio.load() } catch (e) {}
+    current = null; nowName.textContent = '—'; nowState.textContent = '未播放'; renderList(); updateFavBtn()
+  }
+
+  const toggleFav = (st) => {
+    if (favSet.has(st.name)) favSet.delete(st.name); else favSet.add(st.name)
+    LSrSet('fav', JSON.stringify([...favSet]))
+    renderList(); updateFavBtn()
+  }
+  const updateFavBtn = () => {
+    const on = current && favSet.has(current.name)
+    favBtn.textContent = on ? '★ 已收藏' : '☆ 收藏当前'
+  }
+
+  const removeCustom = (st) => {
+    custom = custom.filter(s => s.url !== st.url && s.name !== st.name)
+    LSrSet('custom', JSON.stringify(custom))
+    if (current && current.url === st.url) stopPlay()
+    renderList(); toast('已移除：' + st.name)
+  }
+
+  const rowStyle = 'display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;cursor:pointer;border:1px solid var(--border);margin-bottom:8px;background:var(--bg);transition:.15s'
+  const stationRow = (st, isCustom) => {
+    const active = current && current.url === st.url
+    const fav = favSet.has(st.name)
+    return el('div', {
+      class: 'radio-row',
+      style: rowStyle + (active ? ';border-color:var(--primary);background:var(--panel-2)' : ''),
+      onclick: () => playStation(st)
+    }, [
+      el('span', { style: 'font-size:18px' }, [active ? '🔊' : '📻']),
+      el('div', { style: 'flex:1;min-width:0' }, [
+        el('div', { style: 'font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis' }, [st.name + (active ? ' · 播放中' : '')]),
+        st.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [st.note]) : null
+      ].filter(Boolean)),
+      el('button', { class: 'btn', style: 'padding:4px 10px', onclick: (e) => { e.stopPropagation(); toggleFav(st) } }, [fav ? '★' : '☆']),
+      isCustom ? el('button', { class: 'btn', style: 'padding:4px 10px', onclick: (e) => { e.stopPropagation(); removeCustom(st) } }, ['✕']) : null
+    ].filter(Boolean))
+  }
+
+  const groupHeader = (txt) => el('div', { style: 'font-weight:700;margin:14px 0 8px;color:var(--text)' }, [txt])
+
+  const renderList = () => {
+    clear(listBox)
+    const defs = allStations()
+    const favStations = defs.filter(s => favSet.has(s.name))
+    if (favStations.length) { listBox.append(groupHeader('⭐ 我的收藏')); favStations.forEach(s => listBox.append(stationRow(s, custom.some(c => c.url === s.url)))) }
+    for (const g of DEFAULTS) { listBox.append(groupHeader(g.cat)); g.items.forEach(s => listBox.append(stationRow(s, false))) }
+    if (custom.length) { listBox.append(groupHeader('📻 我的电台')); custom.forEach(s => listBox.append(stationRow(s, true))) }
+  }
+
+  // —— 添加电台 ——
+  const nameInput = el('input', { type: 'text', placeholder: '电台名称，如：XXX音乐广播', style: 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const urlInput = el('input', { type: 'text', placeholder: '直连流地址 .mp3 / .aac / .ogg 等', style: 'flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+  const addBtn = el('button', { class: 'btn primary' }, ['＋ 添加电台'])
+  addBtn.onclick = () => {
+    const name = nameInput.value.trim(); const url = urlInput.value.trim()
+    if (!name || !url) { toast('请填写名称和流地址', 'err'); return }
+    if (!/^https?:\/\//i.test(url)) { toast('流地址需以 http(s):// 开头', 'err'); return }
+    if (custom.some(s => s.url === url)) { toast('该电台已存在', 'err'); return }
+    custom.push({ name, url }); LSrSet('custom', JSON.stringify(custom))
+    nameInput.value = ''; urlInput.value = ''
+    renderList(); toast('已添加：' + name); playStation({ name, url })
+  }
+
+  favBtn.onclick = () => { if (current) toggleFav(current); else toast('请先播放一个电台', 'err') }
+  stopBtn.onclick = stopPlay
+  volRange.oninput = () => { vol = parseFloat(volRange.value); audio.volume = vol; volVal.textContent = Math.round(vol * 100) + '%'; LSrSet('vol', String(vol)) }
+
+  panel.append(
+    el('p', { class: 'sub' }, ['网络收音机：点击任意电台即可收听，支持自定义直连流地址与收藏。默认收录国际免费电台（HTTPS 直连，全球可用）；国内电台多为 m3u8/HLS 或需直链，可用「添加电台」粘贴 .mp3/.aac 等直连地址。']),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'row', style: 'align-items:center;gap:10px;flex-wrap:wrap' }, [
+        el('div', { style: 'flex:1;min-width:180px' }, [el('div', { class: 'muted' }, ['正在播放']), el('div', { style: 'font-size:15px' }, [nowName, nowState])]),
+        favBtn, stopBtn
+      ]),
+      audio,
+      el('div', { class: 'row', style: 'align-items:center;gap:8px;margin-top:8px' }, [el('span', { class: 'muted' }, ['音量']), volRange, volVal])
+    ]),
+    el('div', { class: 'card', style: 'margin-top:16px' }, [
+      el('div', { class: 'field' }, [el('label', {}, ['添加电台（直连流地址）']),
+        el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap' }, [nameInput, urlInput, addBtn])
+      ])
+    ]),
+    el('div', { class: 'card', style: 'margin-top:16px' }, [listBox])
+  )
+
+  renderList(); updateFavBtn()
+}
+
 export const videoEntertainmentPlugin = {
   id: 'video-entertainment',
   name: '视频娱乐',
@@ -334,7 +491,8 @@ export const videoEntertainmentPlugin = {
   mount(root) {
     const tabsDef = [
       { label: '📺 视频娱乐站', render: renderTv },
-      { label: '🔊 文字转音频', render: renderTextToAudio }
+      { label: '🔊 文字转音频', render: renderTextToAudio },
+      { label: '📻 网络收音机', render: renderRadio }
     ]
     const seg = el('div', { class: 'seg' })
     const buttons = tabsDef.map((t, i) => {
