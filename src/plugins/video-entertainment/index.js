@@ -113,43 +113,36 @@ function renderTextToAudio(panel) {
   })
   const charCount = el('span', { class: 'muted' }, ['0 字'])
 
-  // —— 音色：列出浏览器真实可用音色，中文优先 ——
+  // —— 音色：严格采用 md-to-mp3 技能定义的 5 个微软 Edge Neural 音色（与技能一致）——
+  const VOICES = [
+    { id: 'zh-CN-YunxiNeural', name: '男声·云希（默认·小说朗读）', kw: 'Yunxi' },
+    { id: 'zh-CN-XiaoxiaoNeural', name: '女声·晓晓（温和）', kw: 'Xiaoxiao' },
+    { id: 'zh-CN-YunyangNeural', name: '男声·云扬（新闻播报）', kw: 'Yunyang' },
+    { id: 'zh-CN-XiaoyiNeural', name: '女声·晓伊（活泼）', kw: 'Xiaoyi' },
+    { id: 'zh-CN-YunyeNeural', name: '男声·云野（温和）', kw: 'Yunye' }
+  ]
   const voiceSel = el('select', {})
-  let voiceList = []
-  let chosenVoiceName = LS('voiceName', '')
-  function populateVoices() {
-    voiceList = (synth && synth.getVoices()) || []
-    clear(voiceSel)
-    if (!voiceList.length) {
-      voiceSel.append(el('option', { value: '' }, ['(浏览器暂无可语音，请稍候或换浏览器)']))
-      return
-    }
-    // 中文优先排序
-    const sorted = [...voiceList].sort((a, b) => {
-      const az = a.lang && a.lang.toLowerCase().startsWith('zh') ? 0 : 1
-      const bz = b.lang && b.lang.toLowerCase().startsWith('zh') ? 0 : 1
-      return az - bz
-    })
-    for (const v of sorted) voiceSel.append(el('option', { value: v.name }, [(v.lang ? v.lang + ' · ' : '') + v.name]))
-    // 选定：存储的 > 第一个中文 > 第一个
-    if (chosenVoiceName && voiceList.some(v => v.name === chosenVoiceName)) voiceSel.value = chosenVoiceName
-    else {
-      const firstZh = sorted.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
-      const def = firstZh || sorted[0]
-      voiceSel.value = def.name
-      chosenVoiceName = def.name
-      LSset('voiceName', def.name)
-    }
-  }
-  if (hasSynth) {
-    populateVoices()
-    synth.onvoiceschanged = populateVoices
-  } else populateVoices()
+  for (const v of VOICES) voiceSel.append(el('option', { value: v.id }, [v.name]))
+  const savedVoice = LS('voiceId', 'zh-CN-YunxiNeural')
+  if (VOICES.some(v => v.id === savedVoice)) voiceSel.value = savedVoice
 
-  const rate = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: LS('rate', '1') })
+  // 浏览器真实可用音色（用于实际发声）：按技能音色做最佳匹配
+  let browserVoices = []
+  if (hasSynth) {
+    browserVoices = synth.getVoices() || []
+    synth.onvoiceschanged = () => { browserVoices = synth.getVoices() || [] }
+  }
+  const getVoice = () => {
+    if (!hasSynth) return null
+    const skill = VOICES.find(v => v.id === voiceSel.value) || VOICES[0]
+    let m = browserVoices.find(v => skill.kw && v.name && v.name.indexOf(skill.kw) >= 0) // 1) 关键词精确匹配（Windows 多为 Microsoft Yunxi 等）
+    if (!m) m = browserVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh')) // 2) 任一中文音色
+    return m || browserVoices[0] || null // 3) 兜底第一个可用音色
+  }
+
+  // 语速：默认 0.9×（md-to-mp3 技能默认 rate=-10%，即 0.9×）
+  const rate = el('input', { type: 'range', min: '0.5', max: '2', step: '0.05', value: LS('rate', '0.9') })
   const rateVal = el('span', { class: 'muted' }, [(+rate.value).toFixed(2) + '×'])
-  const pitch = el('input', { type: 'range', min: '0', max: '2', step: '0.05', value: LS('pitch', '1') })
-  const pitchVal = el('span', { class: 'muted' }, [(+pitch.value).toFixed(2)])
 
   // —— 播放控制（浏览器原生，核心功能）——
   const playBtn = el('button', { class: 'btn primary', style: 'font-size:15px;padding:11px 22px' }, ['🔊 朗读'])
@@ -168,7 +161,6 @@ function renderTextToAudio(panel) {
   let chunks = []
   let curIdx = 0
   const updateProgress = (done, total) => { fill.style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'; progText.textContent = `${done} / ${total} 段` }
-  const getVoice = () => voiceList.find(v => v.name === voiceSel.value) || null
 
   const stopPlay = () => { try { if (synth) synth.cancel() } catch (e) {} playing = false; paused = false; pauseBtn.textContent = '⏸ 暂停' }
 
@@ -179,7 +171,7 @@ function renderTextToAudio(panel) {
     }
     const u = new SpeechSynthesisUtterance(chunks[i])
     const v = getVoice(); if (v) u.voice = v
-    u.rate = +rate.value; u.pitch = +pitch.value
+    u.rate = +rate.value
     u.onend = () => { if (!playing) return; curIdx = i + 1; updateProgress(curIdx, chunks.length); speakChunk(curIdx) }
     u.onerror = (e) => { if (e && e.error === 'canceled') return; status.className = 'alert err'; status.textContent = '✗ 朗读出错：' + (e && e.error || 'unknown'); playing = false }
     try { synth.speak(u) } catch (e) { status.className = 'alert err'; status.textContent = '✗ 朗读失败：' + e.message }
@@ -307,9 +299,8 @@ function renderTextToAudio(panel) {
     clearTimeout(saveTimer); saveTimer = setTimeout(() => LSset('text', textArea.value), 400)
   }
   textArea.oninput = onText
-  voiceSel.onchange = () => { chosenVoiceName = voiceSel.value; LSset('voiceName', voiceSel.value); if (playing) { /* 切换音色即时生效下一段 */ } }
+  voiceSel.onchange = () => { LSset('voiceId', voiceSel.value) }
   rate.oninput = () => { rateVal.textContent = (+rate.value).toFixed(2) + '×'; LSset('rate', rate.value) }
-  pitch.oninput = () => { pitchVal.textContent = (+pitch.value).toFixed(2); LSset('pitch', pitch.value) }
   genBtn.onclick = generate
   recheckBtn.onclick = checkServer
 
@@ -330,17 +321,16 @@ function renderTextToAudio(panel) {
   }, 3000)
 
   panel.append(
-    el('p', { class: 'sub' }, ['直接用浏览器自带语音朗读，零后端、打开即用。支持中文音色、语速、语调；可选导出真实 MP3 文件（需本机服务）。']),
+    el('p', { class: 'sub' }, ['直接用浏览器自带语音朗读，零后端、打开即用。音色与语速严格遵循 md-to-mp3 技能规范（5 个微软 Edge 音色、默认 0.9×）；可选导出真实 MP3 文件（需本机服务）。']),
     el('div', { class: 'card' }, [
       el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, [loadBtn, charCount]),
       fileInput, textArea,
       el('p', { class: 'hint', style: 'margin-top:6px' }, ['Markdown（# 标题、**加粗**、链接、代码块、表格、脚注、章末统计等）会在朗读/生成前自动清理为纯净正文。文本自动保存在本机。'])
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [
-      el('div', { class: 'grid cols-3' }, [
-        el('div', { class: 'field' }, [el('label', {}, ['音色（浏览器真实可用，中文优先）']), voiceSel]),
-        el('div', { class: 'field' }, [el('label', {}, ['语速']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [rate, rateVal])]),
-        el('div', { class: 'field' }, [el('label', {}, ['语调']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [pitch, pitchVal])])
+      el('div', { class: 'grid cols-2' }, [
+        el('div', { class: 'field' }, [el('label', {}, ['音色（微软 Edge，与 md-to-mp3 技能一致）']), voiceSel]),
+        el('div', { class: 'field' }, [el('label', {}, ['语速（默认 0.9×）']), el('div', { class: 'row', style: 'gap:8px;align-items:center' }, [rate, rateVal])])
       ]),
       el('div', { class: 'row', style: 'margin-top:12px;flex-wrap:wrap;gap:10px' }, [playBtn, pauseBtn, stopBtn, previewBtn]),
       progress, progText, status
