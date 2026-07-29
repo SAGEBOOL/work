@@ -1,12 +1,21 @@
-// 休闲娱乐 · 五子棋：像素风棋盘 + 启发式 AI + 本地双人 + 联网对战（WebRTC 点对点直连）。
-// 纯前端，无后端。联网模式用浏览器原生 RTCPeerConnection + 手动 offer/answer 信令（邀请链接 + 应答码），
-// 棋步通过 RTCDataChannel 点对点直传，不经任何服务器，故在国内（北京）也可稳定使用（仅需 Google STUN 做 NAT 穿透）。
-import { el, clear, toast } from '../../core/ui.js'
+// 休闲娱乐 · 五子棋：像素风棋盘 + 启发式 AI + 本地双人 + 联网对战（MQTT 中继，发链接即连）。
+// 纯前端，无后端。联网模式用免费公共 MQTT broker（EMQX，国内可达）做信令 + 棋步转发：
+// 创建房间生成 ?room=xxxx 链接发给好友，对方点开自动进同一房间、直接开战，无需任何手动复制或应答码。
+import { el, toast } from '../../core/ui.js'
+import mqtt from 'mqtt'
 
 const N = 15          // 15×15 棋盘
 const SIZE = 450      // canvas 像素尺寸
 const M = 20          // 边距
 const CELL = () => (SIZE - 2 * M) / (N - 1)
+
+// 免费公共 MQTT broker（WebSocket Secure）。优先 EMQX（国产、国内可达），失败回退 HiveMQ。
+const BROKERS = [
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt'
+]
+const TOPIC = (room) => 'gomoku/room/' + room
+const randRoom = () => Math.random().toString(36).slice(2, 10) // 8 位随机房号
 
 // 棋盘配色随明暗主题变化（每次绘制时读取，切换主题后重开/落子即刷新）
 function colors() {
@@ -15,9 +24,6 @@ function colors() {
   return { bg: '#efe2c8', line: 'rgba(80,60,30,.35)', border: 'rgba(80,60,30,.4)', s1: '#1f2329', s1s: 'rgba(255,255,255,.25)', s2: '#fafafa', s2s: 'rgba(0,0,0,.25)', last: '#ff9800' }
 }
 
-const b64enc = (s) => btoa(unescape(encodeURIComponent(s)))
-const b64dec = (b) => decodeURIComponent(escape(atob(b)))
-
 export const gomokuPlugin = {
   id: 'gomoku',
   name: '五子棋',
@@ -25,7 +31,7 @@ export const gomokuPlugin = {
   group: '休闲娱乐',
   mount(root) {
     let state = null
-    let pcRef = null, dc = null, connected = false, myColor = 0, isHost = false
+    let mqttClient = null, connected = false, myColor = 0, isHost = false, roomId = null
 
     const cv = el('canvas', {
       id: 'gokuCanvas', width: SIZE, height: SIZE,
@@ -40,41 +46,15 @@ export const gomokuPlugin = {
     const restartBtn = el('button', { class: 'btn' }, ['🔄 重开'])
     const hintEl = el('div', { class: 'muted', style: 'font-size:12px;margin-top:8px;text-align:center' }, ['点击 / 触摸交叉点落子 · 五子连珠即胜'])
 
-    const page = el('div', { class: 'page' }, [
-      el('h1', {}, ['五子棋']),
-      el('p', { class: 'sub' }, ['人机 / 同屏双人 / 联网对战（邀请好友点对点直连）。五子连珠即胜，黑先白后。']),
-      el('div', { class: 'card' }, [
-        el('div', { style: 'display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:6px' }, [
-          el('span', { class: 'muted', style: 'font-size:13px' }, ['模式']), modeSel
-        ]),
-        statusEl,
-        el('div', { style: 'overflow-x:auto' }, [cv]),
-        el('div', { style: 'margin-top:12px;display:flex;gap:10px;justify-content:center' }, [restartBtn]),
-        hintEl
-      ])
-    ])
-
     // —— 联网对战 UI ——
     const onlineStatusEl = el('span', { class: 'muted' }, [''])
-    const inviteUrl = el('input', { type: 'text', readonly: true, placeholder: '创建房间后这里生成邀请链接', style: 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
-    const answerInput = el('input', { type: 'text', placeholder: '粘贴好友发来的「应答码」', style: 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);margin-top:6px' })
-    const answerCode = el('input', { type: 'text', readonly: true, placeholder: '生成中…', style: 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);margin-top:6px' })
+    const inviteUrl = el('input', { type: 'text', readonly: true, placeholder: '点「创建房间」自动生成邀请链接', style: 'flex:1;min-width:200px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)' })
+    const copyBtn = el('button', { class: 'btn' }, ['📋 复制链接'])
     const createBtn = el('button', { class: 'btn primary' }, ['➕ 创建房间'])
-    const connectBtn = el('button', { class: 'btn primary' }, ['✅ 完成连接'])
-    const copyInviteBtn = el('button', { class: 'btn' }, ['复制邀请链接'])
-    const copyAnswerBtn = el('button', { class: 'btn' }, ['复制应答码'])
-    const hostBox = el('div', {}, [
-      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:center' }, [createBtn, onlineStatusEl]),
-      el('div', { style: 'margin-top:8px' }, [inviteUrl, copyInviteBtn]),
-      el('div', { style: 'margin-top:6px' }, [el('label', { class: 'muted' }, ['好友发来的「应答码」：']), answerInput, connectBtn])
-    ])
-    const guestBox = el('div', {}, [
-      el('p', { class: 'muted', style: 'margin:0 0 4px' }, ['已读取邀请链接。把下面这段「应答码」发给好友，等对方点击「完成连接」后即可开始（你执白，后手）：']),
-      answerCode, copyAnswerBtn
-    ])
     const onlinePanel = el('div', { class: 'card', style: 'margin-top:16px;display:none' }, [
-      el('p', { class: 'sub' }, ['联网对战：棋步通过 WebRTC 点对点直连，不经任何服务器。流程：创建房间 → 复制邀请链接发给好友 → 好友打开并回传「应答码」→ 连接成功即开始。黑方先手。']),
-      hostBox, guestBox
+      el('p', { class: 'sub' }, ['联网对战：点「创建房间」生成一条邀请链接，发给好友；对方点开链接自动进入同一房间、直接开战，无需任何手动复制或应答码。棋步经免费公共 MQTT 中继转发（EMQX，国内可达），站点本身仍纯静态、无后端。']),
+      el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;align-items:center' }, [createBtn, onlineStatusEl]),
+      el('div', { style: 'margin-top:8px;display:flex;gap:8px;align-items:center' }, [inviteUrl, copyBtn])
     ])
 
     const onlineStatus = (msg) => { onlineStatusEl.textContent = msg }
@@ -123,7 +103,7 @@ export const gomokuPlugin = {
       if (!state || state.over) return
       if (state.mode === 'ai' && state.turn !== state.human) return
       if (state.mode === 'online') {
-        if (!connected) { toast('请先连接好友', 'err'); return }
+        if (!connected) { toast('请先创建房间并等待连接', 'err'); return }
         if (state.turn !== myColor) { toast('等待对方落子…', 'err'); return }
       }
       const r = cv.getBoundingClientRect()
@@ -134,32 +114,30 @@ export const gomokuPlugin = {
       placeStone(gx, gy, false)
     }
 
-    const placeStone = (x, y, fromRemote) => {
+    const placeStone = (x, y, fromRemote, player) => {
       if (!state || state.over) return false
-      const player = state.turn
+      const p = (player != null) ? player : state.turn
       if (x < 0 || y < 0 || x >= N || y >= N || state.board[y][x] !== 0) return false
-      state.board[y][x] = player
+      state.board[y][x] = p
       state.last = [x, y]
-      const win = checkWin(x, y, player)
+      const win = checkWin(x, y, p)
       if (win) {
         state.over = true
-        const isAI = (state.mode === 'ai' && player === state.ai)
-        const winner = player === 1 ? '⚫ 黑方' : '⚪ 白方'
+        const isAI = (state.mode === 'ai' && p === state.ai)
+        const winner = p === 1 ? '⚫ 黑方' : '⚪ 白方'
         updateStatus(winner + (isAI ? '（电脑）' : '') + ' 胜利！')
         toast('🎉 ' + winner + '胜利！', 'ok')
       } else {
-        state.turn = player === 1 ? 2 : 1
+        state.turn = p === 1 ? 2 : 1
         updateStatus()
       }
       draw()
-      if (state.mode === 'online' && !fromRemote && connected) {
-        try { sendMsg({ t: 'move', x, y }) } catch (e) {}
-      }
+      if (state.mode === 'online' && !fromRemote && connected) sendMove(x, y, p)
       if (state.mode === 'ai' && !state.over && state.turn === state.ai) setTimeout(aiMove, 350)
       return true
     }
 
-    const applyRemote = (x, y) => placeStone(x, y, true)
+    const applyRemote = (x, y, color) => placeStone(x, y, true, color)
 
     const aiMove = () => {
       if (!state || state.over || state.turn !== state.ai) return
@@ -213,9 +191,10 @@ export const gomokuPlugin = {
     const updateStatus = (text) => {
       if (text) { statusEl.textContent = text; return }
       if (state.mode === 'online') {
-        if (!connected) { statusEl.textContent = '🔗 等待连接好友…'; return }
+        if (!connected) { statusEl.textContent = '🔗 连接中…'; return }
         if (state.over) return
-        statusEl.textContent = (state.turn === myColor ? '👉 轮到你落子（' + (myColor === 1 ? '⚫黑' : '⚪白') + '）' : '⏳ 等待对方落子…')
+        if (myColor && state.turn !== myColor) { statusEl.textContent = '⏳ 等待对方落子…'; return }
+        statusEl.textContent = '👉 轮到你落子（' + (myColor === 1 ? '⚫黑' : '⚪白') + '）'
         return
       }
       if (state.mode === 'ai' && state.turn === state.ai) { statusEl.textContent = '🤖 电脑思考中…'; return }
@@ -227,98 +206,110 @@ export const gomokuPlugin = {
       cv.onpointerdown = (e) => { e.preventDefault(); gomokuPlace(e.clientX, e.clientY) }
     }
 
-    // —— 联网：WebRTC 点对点 ——
-    const sendMsg = (obj) => { if (dc && dc.readyState === 'open') dc.send(JSON.stringify(obj)) }
+    // —— 联网：MQTT 中继（免费公共 broker，国内可达）——
+    const sendMove = (x, y, color) => {
+      if (mqttClient && mqttClient.connected) mqttClient.publish(TOPIC(roomId), JSON.stringify({ t: 'move', x, y, color }))
+    }
     const handleMsg = (m) => {
-      if (!m) return
-      if (m.t === 'move') applyRemote(m.x, m.y)
-      else if (m.t === 'restart') { if (state && state.mode === 'online') init() }
-    }
-    const wireChannel = (ch) => {
-      ch.onopen = () => {
-        connected = true
-        myColor = isHost ? 1 : 2
-        onlineStatus(isHost ? '✅ 已连接（你执黑，先手）' : '✅ 已连接（你执白，后手）')
-        updateStatus(); draw()
+      if (!m || !state || state.mode !== 'online') return
+      if (m.t === 'join') {
+        if (isHost) mqttClient.publish(TOPIC(roomId), JSON.stringify({ t: 'state', board: state.board, turn: state.turn }))
+      } else if (m.t === 'state') {
+        if (!isHost) {
+          state.board = m.board.map(r => r.slice())
+          state.turn = m.turn
+          state.over = false
+          draw(); updateStatus()
+        }
+      } else if (m.t === 'move') {
+        if (m.color && m.color !== myColor && m.color === state.turn) applyRemote(m.x, m.y, m.color)
+      } else if (m.t === 'restart') {
+        init()
       }
-      ch.onmessage = (e) => { try { handleMsg(JSON.parse(e.data)) } catch (err) {} }
-      ch.onclose = () => { connected = false; onlineStatus('⚠️ 对方已断开，可点「重开」'); updateStatus() }
-    }
-    const newPC = () => new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] })
-
-    const setupHost = () => {
-      try {
-        isHost = true
-        const pc = newPC()
-        pcRef = pc
-        dc = pc.createDataChannel('gomoku')
-        wireChannel(dc)
-        pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') onlineStatus('❌ 连接失败（NAT 穿透受阻，请改用同屏双人）') }
-        pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => {
-          const sdp = b64enc(JSON.stringify(pc.localDescription))
-          const url = location.origin + location.pathname + '?offer=' + encodeURIComponent(sdp) + '#/gomoku'
-          inviteUrl.value = url
-          onlineStatus('🔗 已生成邀请链接，发给好友…')
-        }).catch(err => onlineStatus('❌ 创建房间失败：' + err.message))
-      } catch (e) { onlineStatus('❌ 浏览器不支持 WebRTC：' + e.message) }
     }
 
-    const setupGuest = (offerB64) => {
-      try {
-        isHost = false
-        const pc = newPC()
-        pcRef = pc
-        pc.ondatachannel = (e) => { dc = e.channel; wireChannel(dc) }
-        pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') onlineStatus('❌ 连接失败（NAT 穿透受阻）') }
-        const offer = JSON.parse(b64dec(offerB64))
-        pc.setRemoteDescription(offer).then(() => pc.createAnswer()).then(a => pc.setLocalDescription(a)).then(() => {
-          answerCode.value = b64enc(JSON.stringify(pc.localDescription))
-          onlineStatus('📤 已生成应答码，请发给好友…')
-        }).catch(err => onlineStatus('❌ 加入失败：' + err.message))
-      } catch (e) { onlineStatus('❌ 解析邀请链接失败：' + e.message) }
-    }
-
-    const connectHost = (answerB64) => {
-      if (!pcRef) { onlineStatus('请先「创建房间」'); return }
-      try {
-        const ans = JSON.parse(b64dec(answerB64))
-        pcRef.setRemoteDescription(ans).then(() => onlineStatus('✅ 已连接，黑方先手！')).catch(err => onlineStatus('❌ 连接失败：' + err.message))
-      } catch (e) { onlineStatus('❌ 应答码无效') }
+    const connectRoom = (room, host) => {
+      roomId = room; isHost = host; myColor = host ? 1 : 2
+      // 测试 / 无 WebSocket 环境直接跳过，避免发起真实连接
+      if (typeof window === 'undefined' || typeof window.WebSocket === 'undefined') { onlineStatus('（测试环境，跳过连接）'); return }
+      let fallbackDone = false
+      const tryConnect = (i) => {
+        if (i >= BROKERS.length) { onlineStatus('❌ 无法连接中继服务（请检查网络）'); return }
+        try {
+          mqttClient = mqtt.connect(BROKERS[i], {
+            clientId: 'goku_' + Math.random().toString(16).slice(2, 10),
+            clean: true, connectTimeout: 15000, reconnectPeriod: 3000
+          })
+        } catch (e) { onlineStatus('❌ 连接失败：' + e.message); return }
+        mqttClient.on('connect', () => {
+          mqttClient.subscribe(TOPIC(roomId), { qos: 0 })
+          connected = true
+          onlineStatus(host ? '✅ 房间已就绪（你执黑，先手），等待好友加入…' : '✅ 已加入房间（你执白，后手），等待对手落子…')
+          updateStatus()
+          if (!host) mqttClient.publish(TOPIC(roomId), JSON.stringify({ t: 'join' }))
+        })
+        mqttClient.on('message', (topic, payload) => { try { handleMsg(JSON.parse(payload.toString())) } catch (e) {} })
+        mqttClient.on('close', () => { if (connected) { connected = false; onlineStatus('⚠️ 与中继断开，正在重连…'); updateStatus() } })
+        mqttClient.on('error', (err) => {
+          if (connected) return
+          if (!fallbackDone) { fallbackDone = true; try { mqttClient.end(true) } catch (e) {}; tryConnect(i + 1) }
+          else onlineStatus('⚠️ 连接异常：' + (err && err.message ? err.message : String(err)))
+        })
+      }
+      tryConnect(0)
     }
 
     const closeConn = () => {
-      try { if (dc) dc.close() } catch (e) {}
-      try { if (pcRef) pcRef.close() } catch (e) {}
-      dc = null; pcRef = null; connected = false; myColor = 0; isHost = false
-      inviteUrl.value = ''; answerInput.value = ''; answerCode.value = ''
+      if (mqttClient) { try { mqttClient.publish(TOPIC(roomId), JSON.stringify({ t: 'leave' })) } catch (e) {}; try { mqttClient.end(true) } catch (e) {} }
+      mqttClient = null; connected = false; myColor = 0; isHost = false; roomId = null
+      inviteUrl.value = ''
     }
 
     const updateOnlineUI = () => {
       const on = state && state.mode === 'online'
       onlinePanel.style.display = on ? '' : 'none'
       if (!on) return
-      if (isGuest) { hostBox.style.display = 'none'; guestBox.style.display = '' }
-      else { hostBox.style.display = ''; guestBox.style.display = 'none' }
+      if (isGuest) { createBtn.style.display = 'none'; inviteUrl.style.display = 'none'; copyBtn.style.display = 'none' }
+      else { createBtn.style.display = ''; inviteUrl.style.display = ''; copyBtn.style.display = '' }
     }
 
     // —— 事件 ——
     const onModeChange = () => { closeConn(); init() }
     modeSel.onchange = onModeChange
-    restartBtn.onclick = () => { if (state && state.mode === 'online' && connected) sendMsg({ t: 'restart' }); init() }
-    createBtn.onclick = setupHost
-    connectBtn.onclick = () => connectHost(answerInput.value.trim())
-    copyInviteBtn.onclick = () => { try { navigator.clipboard.writeText(inviteUrl.value); toast('已复制邀请链接') } catch (e) { toast('复制失败，请手动复制', 'err') } }
-    copyAnswerBtn.onclick = () => { try { navigator.clipboard.writeText(answerCode.value); toast('已复制应答码') } catch (e) { toast('复制失败，请手动复制', 'err') } }
+    restartBtn.onclick = () => { if (state && state.mode === 'online' && connected) mqttClient.publish(TOPIC(roomId), JSON.stringify({ t: 'restart' })); init() }
+    createBtn.onclick = () => {
+      const room = randRoom()
+      const url = location.origin + location.pathname + '?room=' + room + '#/gomoku'
+      inviteUrl.value = url
+      try { navigator.clipboard.writeText(url); toast('邀请链接已复制，发给好友即可') } catch (e) { toast('链接已生成，请手动复制') }
+      connectRoom(room, true)
+    }
+    copyBtn.onclick = () => { try { navigator.clipboard.writeText(inviteUrl.value); toast('已复制邀请链接') } catch (e) { toast('复制失败，请手动复制', 'err') } }
 
     // —— 挂载 ——
+    const page = el('div', { class: 'page' }, [
+      el('h1', {}, ['五子棋']),
+      el('p', { class: 'sub' }, ['人机 / 同屏双人 / 联网对战（发链接即连）。五子连珠即胜，黑先白后。']),
+      el('div', { class: 'card' }, [
+        el('div', { style: 'display:flex;gap:8px;align-items:center;justify-content:center;margin-bottom:6px' }, [
+          el('span', { class: 'muted', style: 'font-size:13px' }, ['模式']), modeSel
+        ]),
+        statusEl,
+        el('div', { style: 'overflow-x:auto' }, [cv]),
+        el('div', { style: 'margin-top:12px;display:flex;gap:10px;justify-content:center' }, [restartBtn]),
+        hintEl
+      ])
+    ])
     root.append(page, onlinePanel)
-    const pendingOffer = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('offer') : null
-    const isGuest = !!pendingOffer
+
+    const pendingRoom = (typeof location !== 'undefined' && location.search) ? new URLSearchParams(location.search).get('room') : null
+    const isGuest = !!pendingRoom
     init()
-    if (pendingOffer) {
+    if (pendingRoom) {
       modeSel.value = 'online'
-      onModeChange()
-      setupGuest(pendingOffer)
+      state.mode = 'online'
+      updateOnlineUI()
+      connectRoom(pendingRoom, false)
     }
   }
 }
