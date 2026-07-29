@@ -78,7 +78,8 @@ async function localTTSChunk(text, voice, ratePct) {
   const resp = await fetch(LOCAL_TTS_URL + '/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice, rate: ratePct })
+    body: JSON.stringify({ text, voice, rate: ratePct }),
+    targetAddressSpace: 'local' // 声明目标为本地网络，避免 Chrome 138+ 本地网络访问权限拦截
   })
   if (!resp.ok) {
     const msg = await resp.text().catch(() => 'unknown')
@@ -126,6 +127,7 @@ function renderTextToAudio(panel) {
   progress.append(fill)
   const progText = el('span', { class: 'muted' }, ['0 / 0 段'])
   const status = el('div', { class: 'alert' }, ['检测本地服务中…'])
+  const recheckBtn = el('button', { class: 'btn' }, ['🔄 重新检测'])
   const audioEl = el('audio', { controls: true, style: 'width:100%;margin-top:10px;display:none' })
   const downloadLink = el('a', { class: 'btn primary', download: 'tts.mp3', style: 'display:none;margin-top:8px;text-decoration:none' }, ['⬇ 下载 MP3'])
   const historyBox = el('div', { style: 'margin-top:8px' })
@@ -158,7 +160,7 @@ function renderTextToAudio(panel) {
 
   const checkServer = async () => {
     try {
-      const resp = await fetch(LOCAL_TTS_URL + '/', { method: 'GET', mode: 'cors' })
+      const resp = await fetch(LOCAL_TTS_URL + '/', { method: 'GET', mode: 'cors', targetAddressSpace: 'local' })
       serverOk = resp.ok
       if (serverOk) setStatus('✓ 已连接本机 Edge TTS 服务（' + LOCAL_TTS_URL + '）', 'ok')
       else setStatus('✗ 本机服务响应异常', 'err')
@@ -171,13 +173,13 @@ function renderTextToAudio(panel) {
   }
 
   const generate = async () => {
-    if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return }
+    if (!serverOk) { await checkServer(); if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return } }
     const text = cleanMarkdown(textArea.value)
     if (!text.trim()) { toast('没有可转换的文本', 'err'); return }
     const voice = voiceSel.value
     const rateNum = +rate.value
     const pct = Math.round((rateNum - 1) * 100)
-    const ratePct = (pct >= 0 ? '+' : '') + pct + '%'
+    const ratePct = (pct > 0 ? '+' : '') + pct + '%'
     const chunks = splitChunks(text)
     genBtn.disabled = true; previewBtn.disabled = true; downloadLink.style.display = 'none'; audioEl.style.display = 'none'
     const blobs = []
@@ -205,13 +207,13 @@ function renderTextToAudio(panel) {
   }
 
   const preview = async () => {
-    if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return }
+    if (!serverOk) { await checkServer(); if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return } }
     const text = cleanMarkdown(textArea.value)
     if (!text.trim()) { toast('没有可试听文本', 'err'); return }
     const voice = voiceSel.value
     const rateNum = +rate.value
     const pct = Math.round((rateNum - 1) * 100)
-    const ratePct = (pct >= 0 ? '+' : '') + pct + '%'
+    const ratePct = (pct > 0 ? '+' : '') + pct + '%'
     const snippet = text.slice(0, 200)
     previewBtn.disabled = true; genBtn.disabled = true
     setStatus('🔊 正在用真实音色试听（本机 edge-tts 合成片段）…')
@@ -247,6 +249,7 @@ function renderTextToAudio(panel) {
   rate.oninput = () => { rateVal.textContent = (+rate.value).toFixed(2) + '×'; LSset('rate', rate.value) }
   genBtn.onclick = generate
   previewBtn.onclick = preview
+  recheckBtn.onclick = checkServer
 
   if (LS('text', '')) textArea.value = LS('text', '')
   onText()
@@ -267,7 +270,9 @@ function renderTextToAudio(panel) {
       ]),
       el('div', { class: 'field', style: 'margin-top:6px' }, [el('label', {}, ['输出文件名']), fileNameInput]),
       el('div', { class: 'row', style: 'margin-top:10px' }, [genBtn, previewBtn]),
-      progress, progText, status, audioEl, downloadLink
+      progress, progText,
+      el('div', { class: 'row', style: 'gap:10px;align-items:center;margin-top:6px' }, [status, recheckBtn]),
+      audioEl, downloadLink
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [
       el('div', { style: 'font-weight:600;margin-bottom:6px' }, ['如何启动本机 TTS 服务？']),
