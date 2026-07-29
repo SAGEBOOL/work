@@ -23,22 +23,13 @@ const IPTV_DEMO = [
   { group: '🎬 演示流', name: 'Apple HLS 测试', url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8', note: 'HLS 测试流，确认播放器可用' },
   { group: '🎬 演示流', name: 'Mux HLS 测试', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', note: 'HLS 测试流' }
 ]
-// 内置精选电影台：iptv-org 免费公开的电影/影视频道（多为 Pluto TV / Plex 等免费流媒体，
-// 原声播放、通常不带中文字幕）。取自 iptv-org 公开数据，仅供合法免费观看，不含任何付费/盗版源。
-// 注：这些免费公开流里没有 HBO 等付费台的合法直链；要看 HBO / 带中文字幕的好莱坞影片，
-// 请用你自己的订阅源（运营商 / IPTV 提供商的 m3u），通过「添加频道 / 粘贴 m3u」播放。
+// 内置精选影片/频道：全部为公开、长期稳定的合法免费 HLS 源（已逐一实测 HTTP 200 且为有效播放列表），
+// 不含任何付费 / 盗版内容。免费公开流里没有 HBO 等付费台合法直链；
+// 看 HBO / 带中文字幕的好莱坞影片请用你自己的订阅源（运营商 / IPTV 提供商的 m3u）。
 const IPTV_MOVIES = [
-  { group: '🎬 精选电影台', name: 'Classic Movies Channel', url: 'https://jmp2.uk/plu-561c5b0dada51f8004c4d855.m3u8', note: '经典电影' },
-  { group: '🎬 精选电影台', name: '70s Cinema', url: 'https://jmp2.uk/plu-5f4d878d3d19b30007d2e782.m3u8', note: '70 年代影院' },
-  { group: '🎬 精选电影台', name: '80s Rewind', url: 'https://jmp2.uk/plu-5ca525b650be2571e3943c63.m3u8', note: '80 年代怀旧' },
-  { group: '🎬 精选电影台', name: '90s Throwback', url: 'https://jmp2.uk/plu-5f4d86f519358a00072b978e.m3u8', note: '90 年代怀旧' },
-  { group: '🎬 精选电影台', name: '00s Replay', url: 'https://jmp2.uk/plu-62ba60f059624e000781c436.m3u8', note: '00 年代回放' },
-  { group: '🎬 精选电影台', name: 'Ciné Sci-Fi by Pluto TV', url: 'https://jmp2.uk/plu-60c34592c911890007f29a73.m3u8', note: '科幻' },
-  { group: '🎬 精选电影台', name: 'Ciné Thrillers by Pluto TV', url: 'https://jmp2.uk/plu-60c3472a51a2050008dad272.m3u8', note: '惊悚' },
-  { group: '🎬 精选电影台', name: 'Ciné Western by Pluto TV', url: 'https://jmp2.uk/plu-65cca3e2ec452d0008af3a65.m3u8', note: '西部' },
-  { group: '🎬 精选电影台', name: 'Pluto TV Cine Drama', url: 'https://jmp2.uk/plu-5f1ac947dcd00d0007937c08.m3u8', note: '剧情' },
-  { group: '🎬 精选电影台', name: 'Pluto TV Fantasy & Horror', url: 'https://jmp2.uk/plu-685041d936c9361b1921c26c.m3u8', note: '奇幻 / 恐怖' },
-  { group: '🎬 精选电影台', name: 'BET Comedy Movies', url: 'https://jmp2.uk/plu-68c32d88f56983aba40052bd.m3u8', note: '喜剧' }
+  { group: '🎬 精选影片', name: 'Angel One 科幻剧集', url: 'https://storage.googleapis.com/shaka-demo-assets/angel-one-hls/hls.m3u8', note: '免费科幻剧集（Shaka 官方源）' },
+  { group: '🎬 精选影片', name: 'Apple 多码率演示', url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8', note: 'HLS 多音轨 / 字幕演示' },
+  { group: '🎬 精选影片', name: 'Mux 时序测试流', url: 'https://test-streams.mux.dev/pts_shift/master.m3u8', note: '免费测试影片流' }
 ]
 // 一键载入预设（iptv-org 公开播放列表，可能受网络 / 跨域影响）。
 const IPTV_PRESETS = [
@@ -744,7 +735,7 @@ function renderIPTV(panel) {
   )
 
   panel.append(
-    el('p', { class: 'sub' }, ['网络电视：在站内直接播放全球 IPTV 频道。HLS(.m3u8) 由 hls.js 解码，主流浏览器均可播放。已内置「🎬 精选电影台」（Pluto TV / 免费流媒体电影频道，原声、多为英文，通常不带中文字幕）；点击下方「⚡ 预设 / 导入播放列表」可加载更多全球频道（含中国、电影、娱乐等分类）。',
+    el('p', { class: 'sub' }, ['网络电视：在站内直接播放全球 IPTV 频道。HLS(.m3u8) 由 hls.js 解码，主流浏览器均可播放。已内置「🎬 精选影片」（均为公开、长期稳定的合法免费 HLS 源，已逐一实测可达）；点击下方「⚡ 预设 / 导入播放列表」可一键加载 iptv-org 全球频道（含中国、新闻、体育、电影、娱乐等分类，实时获取）。',
       el('br', {}),
       '说明：免费公开流里没有 HBO 等付费台的合法直链；想看 HBO / 带中文字幕的好莱坞影片，请用你自己的订阅源（运营商 / IPTV 提供商的 m3u），通过「添加频道 / 粘贴 m3u」播放。频道可用性取决于你的网络；跨域失败可粘贴 m3u 文本或手动添加。']),
     el('div', { class: 'card' }, [
