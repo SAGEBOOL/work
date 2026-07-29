@@ -128,16 +128,38 @@ function renderTextToAudio(panel) {
 
   // 浏览器真实可用音色（用于实际发声）：按技能音色做最佳匹配
   let browserVoices = []
-  if (hasSynth) {
-    browserVoices = synth.getVoices() || []
-    synth.onvoiceschanged = () => { browserVoices = synth.getVoices() || [] }
-  }
+  const loadVoices = () => new Promise(resolve => {
+    if (!hasSynth) { resolve([]); return }
+    let resolved = false
+    let timer = null
+    const cleanup = () => { if (timer) clearInterval(timer); synth.removeEventListener('voiceschanged', tryResolve) }
+    const tryResolve = () => {
+      if (resolved) return
+      const list = synth.getVoices() || []
+      if (list.length) { resolved = true; cleanup(); browserVoices = list; resolve(list) }
+    }
+    tryResolve()
+    timer = setInterval(tryResolve, 80)
+    synth.addEventListener('voiceschanged', tryResolve)
+    // 保险：最长等 5 秒
+    setTimeout(() => { if (!resolved) { resolved = true; cleanup(); resolve(synth.getVoices() || []) } }, 5000)
+  })
+  if (hasSynth) loadVoices() // 预加载，不阻塞
+
   const getVoice = () => {
     if (!hasSynth) return null
     const skill = VOICES.find(v => v.id === voiceSel.value) || VOICES[0]
-    let m = browserVoices.find(v => skill.kw && v.name && v.name.indexOf(skill.kw) >= 0) // 1) 关键词精确匹配（Windows 多为 Microsoft Yunxi 等）
-    if (!m) m = browserVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh')) // 2) 任一中文音色
-    return m || browserVoices[0] || null // 3) 兜底第一个可用音色
+    if (!browserVoices.length) return null
+    // 1) 关键词精确匹配（Windows 多为 Microsoft Yunxi / Xiaoxiao 等）
+    let m = browserVoices.find(v => skill.kw && v.name && v.name.indexOf(skill.kw) >= 0)
+    // 2) 忽略大小写再试一次（部分浏览器名字大小写不同）
+    if (!m) m = browserVoices.find(v => skill.kw && v.name && v.name.toLowerCase().indexOf(skill.kw.toLowerCase()) >= 0)
+    // 3) 按 lang 字段匹配 zh-CN
+    if (!m) m = browserVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh-cn'))
+    // 4) 任一中文语音
+    if (!m) m = browserVoices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'))
+    // 5) 兜底第一个可用语音
+    return m || browserVoices[0] || null
   }
 
   // 语速：默认 0.9×（md-to-mp3 技能默认 rate=-10%，即 0.9×）
@@ -162,31 +184,56 @@ function renderTextToAudio(panel) {
   let curIdx = 0
   const updateProgress = (done, total) => { fill.style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'; progText.textContent = `${done} / ${total} 段` }
 
-  const stopPlay = () => { try { if (synth) synth.cancel() } catch (e) {} playing = false; paused = false; pauseBtn.textContent = '⏸ 暂停' }
+  let keepAliveTimer = null
+  const clearKeepAlive = () => { if (keepAliveTimer) { clearInterval(keepAliveTimer); keepAliveTimer = null } }
+  const startKeepAlive = () => {
+    clearKeepAlive()
+    // Chrome 长文本会自动 pause，需定时 resume 防止报 interrupted
+    keepAliveTimer = setInterval(() => {
+      if (playing && !paused && synth.paused) { try { synth.resume() } catch (e) {} }
+    }, 3000)
+  }
+  const stopPlay = () => {
+    clearKeepAlive()
+    try { if (synth) synth.cancel() } catch (e) {}
+    playing = false; paused = false; pauseBtn.textContent = '⏸ 暂停'
+  }
 
   const speakChunk = (i) => {
     if (!playing || i >= chunks.length) {
-      if (i >= chunks.length) { updateProgress(chunks.length, chunks.length); status.className = 'alert ok'; status.textContent = '✓ 朗读完成'; playing = false; pauseBtn.textContent = '⏸ 暂停' }
+      if (i >= chunks.length) { updateProgress(chunks.length, chunks.length); status.className = 'alert ok'; status.textContent = '✓ 朗读完成'; playing = false; pauseBtn.textContent = '⏸ 暂停'; clearKeepAlive() }
       return
     }
     const u = new SpeechSynthesisUtterance(chunks[i])
-    const v = getVoice(); if (v) u.voice = v
-    u.rate = +rate.value
+    const v = getVoice()
+    if (v) { u.voice = v; u.lang = v.lang || 'zh-CN' }
+    else { u.lang = 'zh-CN' }
+    u.rate = Math.max(0.1, Math.min(2, +rate.value))
     u.onend = () => { if (!playing) return; curIdx = i + 1; updateProgress(curIdx, chunks.length); speakChunk(curIdx) }
-    u.onerror = (e) => { if (e && e.error === 'canceled') return; status.className = 'alert err'; status.textContent = '✗ 朗读出错：' + (e && e.error || 'unknown'); playing = false }
-    try { synth.speak(u) } catch (e) { status.className = 'alert err'; status.textContent = '✗ 朗读失败：' + e.message }
+    u.onerror = (e) => {
+      if (e && (e.error === 'canceled' || e.error === 'interrupted')) return
+      status.className = 'alert err'; status.textContent = '✗ 朗读出错：' + (e && e.error || 'unknown'); playing = false; clearKeepAlive()
+    }
+    try { synth.speak(u) } catch (e) { status.className = 'alert err'; status.textContent = '✗ 朗读失败：' + e.message; clearKeepAlive() }
   }
 
-  const startPlay = (targetChunks) => {
+  const startPlay = async (targetChunks) => {
     if (!hasSynth) { toast('当前浏览器不支持语音合成', 'err'); return }
     const text = cleanMarkdown(textArea.value)
     if (!text.trim()) { toast('没有可转换的文本', 'err'); return }
+    status.className = 'alert'; status.textContent = '⏳ 正在准备音色…'
+    const voices = await loadVoices()
+    if (!voices.length) { status.className = 'alert err'; status.textContent = '✗ 当前浏览器没有可用语音，请换 Chrome/Edge/Safari 试试'; return }
+    // 先停止旧播放，并给 Chrome 一小段时间完成 cancel，避免 interrupted
     stopPlay()
+    await new Promise(r => setTimeout(r, 60))
     chunks = targetChunks || splitChunks(text)
     if (!chunks.length) { toast('没有可转换的文本', 'err'); return }
     curIdx = 0; playing = true; paused = false
     pauseBtn.textContent = '⏸ 暂停'
-    status.className = 'alert'; status.textContent = '🔊 正在朗读（' + (getVoice() ? getVoice().name : '默认音色') + '）…'
+    const v = getVoice()
+    status.className = 'alert'; status.textContent = '🔊 正在朗读（' + (v ? v.name : '默认音色') + '）…'
+    startKeepAlive()
     speakChunk(0)
   }
 
