@@ -16,6 +16,8 @@
     "@ffmpeg/core": "^0.12.6",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.1",
+    "hls.js": "^1.6.16",
+    "mqtt": "^5.10.1",
     "html2pdf.js": "^0.14.0",
     "jszip": "^3.10.1",
     "mammoth": "^1.12.0",
