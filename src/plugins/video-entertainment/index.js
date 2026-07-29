@@ -1,19 +1,14 @@
-// 视频娱乐：①外部视频站点入口（原功能）②文字转音频（复刻 md-to-mp3 技能流程：清理 Markdown → 微软 Edge 免费 TTS → 真实 MP3）
+// 视频娱乐：①外部视频站点入口（原功能）②文字转音频（复刻 md-to-mp3 技能流程：清理 Markdown → 本机 edge-tts → 真实 MP3）
 import { el, clear, toast } from '../../core/ui.js'
 
 // 注意：原需求中地址为 tv.mydsart.wokr，按域名惯例修正为 .work
 const TV_URL = 'https://tv.mydsart.work/'
+const LOCAL_TTS_URL = 'http://127.0.0.1:8765'
 
 // —— 本地持久化（与全站 opwb:* 约定一致）——
 const LS = (k, d) => { try { const v = localStorage.getItem('opwb:tts:' + k); return v == null ? d : v } catch (e) { return d } }
 const LSset = (k, v) => { try { localStorage.setItem('opwb:tts:' + k, v) } catch (e) {} }
 
-// 微软 Edge 免费 TTS 端点（与 edge-tts / md-to-mp3 技能同一后端、无需 Key）
-// 注意：TrustedClientToken 首字母大写；每个连接需带独立 ConnectionId
-function ttsWsUrl() {
-  return 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A7A6B8C8B4D4A8E9F3B2A1C5D6E7F8&ConnectionId=' + uuid()
-}
-const OUTPUT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3'
 // md-to-mp3 技能内置音色（默认男声云希）
 const VOICES = [
   { id: 'zh-CN-YunxiNeural', name: '男声·云希（默认·小说朗读）' },
@@ -78,75 +73,18 @@ function splitChunks(text, max = 5000) {
   return chunks.filter(c => c.trim())
 }
 
-// —— 底层：单块文本经微软 Edge TTS 返回 MP3 Blob（复刻 edge_tts.Communicate.save）——
-function edgeTTSChunk(text, voice, ratePct) {
-  return new Promise((resolve, reject) => {
-    const wsUrl = ttsWsUrl()
-    let ws
-    try { ws = new WebSocket(wsUrl) }
-    catch (e) { reject(new Error('无法创建 WebSocket 连接：' + e.message)); return }
-    ws.binaryType = 'arraybuffer'
-    const audioChunks = []
-    let turnEnded = false, settled = false
-    const finish = (ok, dataOrErr) => {
-      if (settled) return
-      settled = true
-      try { ws.close() } catch (e) {}
-      if (ok) resolve(dataOrErr); else reject(dataOrErr)
-    }
-    const timeout = setTimeout(() => finish(false, new Error('连接超时（微软服务无响应）')), 60000)
-
-    ws.onopen = () => {
-      try {
-        const config = { context: { synthesis: { audio: {
-          metadataoptions: { sentenceBoundaryEnabled: 'false', wordBoundaryEnabled: 'false' },
-          outputFormat: OUTPUT_FORMAT } } } }
-        ws.send(buildMsg({ 'Content-Type': 'application/json; charset=utf-8', 'Path': 'speech.config', 'X-Timestamp': nowGMT() }, JSON.stringify(config)))
-        const locale = (voice.split('-').slice(0, 2).join('-')) || 'zh-CN'
-        const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='" + locale + "'>" +
-          "<voice name='" + voice + "'><prosody rate='" + ratePct + "'>" + escapeXml(text) + '</prosody></voice></speak>'
-        ws.send(buildMsg({ 'Content-Type': 'application/ssml+xml', 'Path': 'ssml', 'X-RequestId': uuid(), 'X-Timestamp': nowGMT() }, ssml))
-      } catch (e) { finish(false, new Error('发送请求失败：' + e.message)) }
-    }
-    ws.onmessage = (ev) => {
-      try {
-        const bytes = new Uint8Array(ev.data)
-        if (bytes.length < 2) return
-        // 微软 TTS 二进制帧：前 2 字节(大端)为 header 长度，之后为 header 文本，再之后为音频
-        const headerLen = (bytes[0] << 8) | bytes[1]
-        const headerText = new TextDecoder().decode(bytes.subarray(2, 2 + headerLen))
-        const audio = bytes.subarray(2 + headerLen)
-        if (/Path:\s*audio/i.test(headerText)) { if (audio.length) audioChunks.push(audio) }
-        else if (/Path:\s*turn\.end/i.test(headerText)) { turnEnded = true }
-      } catch (e) { finish(false, new Error('解析响应出错：' + e.message)) }
-    }
-    ws.onerror = () => { clearTimeout(timeout); finish(false, new Error('WebSocket 错误（连接被拒绝/网络不通）')) }
-    ws.onclose = () => {
-      clearTimeout(timeout)
-      if (settled) return
-      if (audioChunks.length) finish(true, new Blob(audioChunks, { type: 'audio/mpeg' }))
-      else if (turnEnded) finish(true, new Blob([], { type: 'audio/mpeg' }))
-      else finish(false, new Error('连接已关闭但未收到音频（服务不可用）'))
-    }
+// —— 调用本机 edge-tts 服务生成单段 MP3 ——
+async function localTTSChunk(text, voice, ratePct) {
+  const resp = await fetch(LOCAL_TTS_URL + '/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice, rate: ratePct })
   })
-}
-function buildMsg(headers, body) {
-  let h = ''
-  for (const k in headers) h += k + ': ' + headers[k] + '\r\n'
-  h += '\r\n'
-  const enc = new TextEncoder()
-  const hb = enc.encode(h), bb = enc.encode(body)
-  const out = new Uint8Array(hb.length + bb.length)
-  out.set(hb, 0); out.set(bb, hb.length)
-  return out.buffer
-}
-function escapeXml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') }
-function nowGMT() { return new Date().toUTCString() }
-function uuid() {
-  const b = new Uint8Array(16); (window.crypto || window.msCrypto).getRandomValues(b)
-  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80
-  const h = [...b].map(x => x.toString(16).padStart(2, '0'))
-  return [h.slice(0, 4), h.slice(4, 6), h.slice(6, 8), h.slice(8, 10), h.slice(10, 16)].map(a => a.join('')).join('-')
+  if (!resp.ok) {
+    const msg = await resp.text().catch(() => 'unknown')
+    throw new Error('本地服务错误（HTTP ' + resp.status + '）：' + msg)
+  }
+  return await resp.blob()
 }
 
 // —— 标签①：视频娱乐站 ——
@@ -187,10 +125,12 @@ function renderTextToAudio(panel) {
   const fill = el('div', { style: 'height:100%;width:0%;background:var(--primary);transition:width .15s' })
   progress.append(fill)
   const progText = el('span', { class: 'muted' }, ['0 / 0 段'])
-  const status = el('div', { class: 'alert' }, ['就绪'])
+  const status = el('div', { class: 'alert' }, ['检测本地服务中…'])
   const audioEl = el('audio', { controls: true, style: 'width:100%;margin-top:10px;display:none' })
   const downloadLink = el('a', { class: 'btn primary', download: 'tts.mp3', style: 'display:none;margin-top:8px;text-decoration:none' }, ['⬇ 下载 MP3'])
   const historyBox = el('div', { style: 'margin-top:8px' })
+
+  let serverOk = false
 
   const setStatus = (msg, type) => { status.className = 'alert' + (type ? ' ' + type : ''); status.textContent = msg }
   const updateProgress = (done, total) => { fill.style.width = (total ? Math.min(100, done / total * 100) : 0) + '%'; progText.textContent = `${done} / ${total} 段` }
@@ -216,7 +156,22 @@ function renderTextToAudio(panel) {
     }
   }
 
+  const checkServer = async () => {
+    try {
+      const resp = await fetch(LOCAL_TTS_URL + '/', { method: 'GET', mode: 'cors' })
+      serverOk = resp.ok
+      if (serverOk) setStatus('✓ 已连接本机 Edge TTS 服务（' + LOCAL_TTS_URL + '）', 'ok')
+      else setStatus('✗ 本机服务响应异常', 'err')
+    } catch (e) {
+      serverOk = false
+      setStatus('✗ 未检测到本机 Edge TTS 服务，请按下方说明启动', 'err')
+    }
+    genBtn.disabled = !serverOk
+    previewBtn.disabled = !serverOk
+  }
+
   const generate = async () => {
+    if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return }
     const text = cleanMarkdown(textArea.value)
     if (!text.trim()) { toast('没有可转换的文本', 'err'); return }
     const voice = voiceSel.value
@@ -228,9 +183,9 @@ function renderTextToAudio(panel) {
     const blobs = []
     try {
       for (let i = 0; i < chunks.length; i++) {
-        setStatus('⏳ 正在生成第 ' + (i + 1) + '/' + chunks.length + ' 段（微软 Edge TTS 合成）…', '')
+        setStatus('⏳ 正在生成第 ' + (i + 1) + '/' + chunks.length + ' 段（本机 edge-tts 合成）…', '')
         updateProgress(i, chunks.length)
-        const blob = await edgeTTSChunk(chunks[i], voice, ratePct)
+        const blob = await localTTSChunk(chunks[i], voice, ratePct)
         blobs.push(blob)
       }
       updateProgress(chunks.length, chunks.length)
@@ -250,18 +205,18 @@ function renderTextToAudio(panel) {
   }
 
   const preview = async () => {
+    if (!serverOk) { toast('请先启动本机 Edge TTS 服务', 'err'); return }
     const text = cleanMarkdown(textArea.value)
     if (!text.trim()) { toast('没有可试听文本', 'err'); return }
     const voice = voiceSel.value
     const rateNum = +rate.value
     const pct = Math.round((rateNum - 1) * 100)
     const ratePct = (pct >= 0 ? '+' : '') + pct + '%'
-    // 取前 200 字试听（与导出同一引擎，音色完全一致）
     const snippet = text.slice(0, 200)
     previewBtn.disabled = true; genBtn.disabled = true
-    setStatus('🔊 正在用真实音色试听（微软 Edge TTS 合成片段）…')
+    setStatus('🔊 正在用真实音色试听（本机 edge-tts 合成片段）…')
     try {
-      const blob = await edgeTTSChunk(snippet, voice, ratePct)
+      const blob = await localTTSChunk(snippet, voice, ratePct)
       const url = URL.createObjectURL(blob)
       audioEl.src = url; audioEl.style.display = ''
       audioEl.currentTime = 0
@@ -296,9 +251,10 @@ function renderTextToAudio(panel) {
   if (LS('text', '')) textArea.value = LS('text', '')
   onText()
   renderHistory()
+  checkServer()
 
   panel.append(
-    el('p', { class: 'sub' }, ['复刻 md-to-mp3 技能流程：清理 Markdown → 微软 Edge 免费 TTS（无需 Key）→ 真实可下载 MP3。默认男声云希、语速 0.9×（与技能一致）。']),
+    el('p', { class: 'sub' }, ['复刻 md-to-mp3 技能流程：清理 Markdown → 本机 edge-tts（与技能同一后端）→ 真实可下载 MP3。默认男声云希、语速 0.9×。']),
     el('div', { class: 'card' }, [
       el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:10px' }, [loadBtn, charCount]),
       fileInput, textArea,
@@ -312,6 +268,16 @@ function renderTextToAudio(panel) {
       el('div', { class: 'field', style: 'margin-top:6px' }, [el('label', {}, ['输出文件名']), fileNameInput]),
       el('div', { class: 'row', style: 'margin-top:10px' }, [genBtn, previewBtn]),
       progress, progText, status, audioEl, downloadLink
+    ]),
+    el('div', { class: 'card', style: 'margin-top:16px' }, [
+      el('div', { style: 'font-weight:600;margin-bottom:6px' }, ['如何启动本机 TTS 服务？']),
+      el('p', { class: 'hint' }, ['由于浏览器无法直接连接微软服务，需要在本机启动一个轻量服务来调用 edge-tts。']),
+      el('ol', { class: 'hint', style: 'margin:6px 0;padding-left:18px;line-height:1.7' }, [
+        el('li', {}, ['确保已安装 edge-tts：', el('code', {}, ['pip install edge-tts'])]),
+        el('li', {}, ['下载脚本：', el('a', { href: './local-tts-server.py', download: 'local-tts-server.py', class: 'btn', style: 'display:inline-block;text-decoration:none;margin-left:4px' }, ['📥 local-tts-server.py'])]),
+        el('li', {}, ['在终端运行：', el('code', {}, ['python /path/to/local-tts-server.py'])])
+      ]),
+      el('p', { class: 'hint' }, ['服务启动后保持窗口运行，本页面会自动检测并启用「生成 MP3」和「试听」。'])
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [historyBox])
   )
