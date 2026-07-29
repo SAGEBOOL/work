@@ -3,7 +3,10 @@ import { el, clear, toast } from '../../core/ui.js'
 
 // 注意：原需求中地址为 tv.mydsart.wokr，按域名惯例修正为 .work
 const TV_URL = 'https://tv.mydsart.work/'
-const LOCAL_TTS_URL = 'http://127.0.0.1:8765'
+// TTS 服务地址：若工作台本身就跑在 127.0.0.1/localhost（一键启动器模式），则同源直连；
+// 否则（线上站点）连接本机 127.0.0.1:8765 的本地服务。
+const isLocalHost = (typeof location !== 'undefined') && (location.hostname === '127.0.0.1' || location.hostname === 'localhost')
+const TTS_BASE = isLocalHost ? location.origin : 'http://127.0.0.1:8765'
 
 // —— 本地持久化（与全站 opwb:* 约定一致）——
 const LS = (k, d) => { try { const v = localStorage.getItem('opwb:tts:' + k); return v == null ? d : v } catch (e) { return d } }
@@ -75,7 +78,7 @@ function splitChunks(text, max = 5000) {
 
 // —— 调用本机 edge-tts 服务生成单段 MP3 ——
 async function localTTSChunk(text, voice, ratePct) {
-  const resp = await fetch(LOCAL_TTS_URL + '/tts', {
+  const resp = await fetch(TTS_BASE + '/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice, rate: ratePct }),
@@ -160,9 +163,9 @@ function renderTextToAudio(panel) {
 
   const checkServer = async () => {
     try {
-      const resp = await fetch(LOCAL_TTS_URL + '/', { method: 'GET', mode: 'cors', targetAddressSpace: 'local' })
+      const resp = await fetch(TTS_BASE + '/', { method: 'GET', mode: 'cors', targetAddressSpace: 'local' })
       serverOk = resp.ok
-      if (serverOk) setStatus('✓ 已连接本机 Edge TTS 服务（' + LOCAL_TTS_URL + '）', 'ok')
+      if (serverOk) setStatus('✓ 已连接本机 Edge TTS 服务（' + TTS_BASE + '）', 'ok')
       else setStatus('✗ 本机服务响应异常', 'err')
     } catch (e) {
       serverOk = false
@@ -255,6 +258,12 @@ function renderTextToAudio(panel) {
   onText()
   renderHistory()
   checkServer()
+  // 加载后短时自动重试探测：用户稍后启动服务即可自动连上，无需手动点「重新检测」
+  let pollCount = 0
+  const pollTimer = setInterval(async () => {
+    if (serverOk || ++pollCount > 10) { clearInterval(pollTimer); return }
+    await checkServer()
+  }, 2500)
 
   panel.append(
     el('p', { class: 'sub' }, ['复刻 md-to-mp3 技能流程：清理 Markdown → 本机 edge-tts（与技能同一后端）→ 真实可下载 MP3。默认男声云希、语速 0.9×。']),
@@ -275,14 +284,11 @@ function renderTextToAudio(panel) {
       audioEl, downloadLink
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [
-      el('div', { style: 'font-weight:600;margin-bottom:6px' }, ['如何启动本机 TTS 服务？']),
-      el('p', { class: 'hint' }, ['由于浏览器无法直接连接微软服务，需要在本机启动一个轻量服务来调用 edge-tts。']),
-      el('ol', { class: 'hint', style: 'margin:6px 0;padding-left:18px;line-height:1.7' }, [
-        el('li', {}, ['确保已安装 edge-tts：', el('code', {}, ['pip install edge-tts'])]),
-        el('li', {}, ['下载脚本：', el('a', { href: './local-tts-server.py', download: 'local-tts-server.py', class: 'btn', style: 'display:inline-block;text-decoration:none;margin-left:4px' }, ['📥 local-tts-server.py'])]),
-        el('li', {}, ['在终端运行：', el('code', {}, ['python /path/to/local-tts-server.py'])])
-      ]),
-      el('p', { class: 'hint' }, ['服务启动后保持窗口运行，本页面会自动检测并启用「生成 MP3」和「试听」。'])
+      el('div', { style: 'font-weight:600;margin-bottom:6px' }, ['一步启动（推荐）']),
+      el('p', { class: 'hint', style: 'margin:0 0 6px' }, ['在项目目录执行下面这一条命令，会自动装好依赖、启动服务并打开本页面（同源直连，无需任何配置）：']),
+      el('div', {}, [el('code', { style: 'display:inline-block;background:var(--panel-2);padding:8px 12px;border-radius:8px;font-size:13px' }, ['python run-workbench.py'])]),
+      el('p', { class: 'hint', style: 'margin:8px 0 0' }, ['若你用的是线上站点，加参数即可：', el('code', {}, ['python run-workbench.py --online']), '（仅启动语音服务并打开线上页面）。']),
+      el('p', { class: 'hint', style: 'margin:8px 0 0' }, ['服务启动后保持窗口运行即可。本页面会自动连上并启用「生成 MP3 / 试听」。'])
     ]),
     el('div', { class: 'card', style: 'margin-top:16px' }, [historyBox])
   )
