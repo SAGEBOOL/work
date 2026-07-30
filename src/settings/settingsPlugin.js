@@ -598,14 +598,19 @@ export const settingsPlugin = {
     ])
 
     // ---------- 4.5 联网搜索配置 ----------
-    const searchCfg = s.search || { provider: 'brave', key: '', proxy: '', custom: {} }
+    const searchCfg = s.search || { provider: 'duckduckgo', key: '', proxy: '', custom: {} }
     const sProvSel = el('select', {}, [
-      el('option', { value: 'brave' }, ['Brave Search（推荐，有免费额度）']),
-      el('option', { value: 'serpapi' }, ['SerpAPI（Google）']),
+      el('option', { value: 'duckduckgo' }, ['DuckDuckGo（免费，无需 API Key）']),
+      el('option', { value: 'brave' }, ['Brave Search（需 Key，免费额度 2000次/月）']),
+      el('option', { value: 'serpapi' }, ['SerpAPI / Google（需 Key）']),
       el('option', { value: 'custom' }, ['自定义（URL 模板 + 路径）'])
     ])
-    sProvSel.value = searchCfg.provider || 'brave'
-    const sKeyI = el('input', { type: 'password', value: searchCfg.key || '', placeholder: 'API Key' })
+    sProvSel.value = searchCfg.provider || 'duckduckgo'
+    const sKeyWrap = el('div', { class: 'field', style: 'display:' + (sProvSel.value === 'duckduckgo' ? 'none' : '') }, [
+      el('label', {}, ['API Key']),
+      el('input', { type: 'password', value: searchCfg.key || '', placeholder: 'API Key' })
+    ])
+    const sKeyI = sKeyWrap.querySelector('input')
     const sProxyI = el('input', { type: 'text', value: searchCfg.proxy || '', placeholder: '可选 · 如 https://代理/?url= 或 https://代理/' })
     const sCustomWrap = el('div', { class: 'field', style: 'display:' + (sProvSel.value === 'custom' ? '' : 'none') }, [
       el('label', {}, ['URL 模板（用 {q} 占位查询，{key} 占位 Key）']),
@@ -618,7 +623,13 @@ export const settingsPlugin = {
         el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.snippetPath) || '', placeholder: 'snippet' })
       ])
     ])
-    sProvSel.onchange = () => { sCustomWrap.style.display = sProvSel.value === 'custom' ? '' : 'none' }
+    const toggleSearchFields = () => {
+      const isDDG = sProvSel.value === 'duckduckgo'
+      const isCustom = sProvSel.value === 'custom'
+      sKeyWrap.style.display = isDDG ? 'none' : ''
+      sCustomWrap.style.display = isCustom ? '' : 'none'
+    }
+    sProvSel.onchange = () => { toggleSearchFields(); saveSearch() }
     const saveSearch = () => {
       update((st) => {
         st.settings.search = {
@@ -641,9 +652,9 @@ export const settingsPlugin = {
     sCustomWrap.querySelectorAll('input').forEach((i) => (i.oninput = saveSearch))
     const searchCard = el('div', { class: 'card' }, [
       el('h3', {}, ['联网搜索配置（Web Search）']),
-      el('p', { class: 'hint' }, ['为「行业研究」提供真实联网检索能力。配置后，在行业研究「② 搜集资料」中可出现「联网检索」并直接把结果喂给 AI 分析。多数搜索 API 允许浏览器跨域；若被 CORS 拦截，可填上方「可选代理」兜底。']),
+      el('p', { class: 'hint' }, ['为「行业研究」提供真实联网检索能力。默认使用 DuckDuckGo，无需任何配置即可搜索。如需更精准结果可切换到 Brave/SerpAPI 并填写对应 Key。']),
       el('div', { class: 'field' }, [el('label', {}, ['搜索服务']), sProvSel]),
-      el('div', { class: 'field' }, [el('label', {}, ['API Key']), sKeyI]),
+      sKeyWrap,
       sCustomWrap,
       el('div', { class: 'field' }, [el('label', {}, ['请求代理（可选）']), sProxyI])
     ])
