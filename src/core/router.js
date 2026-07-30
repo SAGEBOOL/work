@@ -1,5 +1,5 @@
 // 基于 hash 的极简路由，刷新/分享链接可定位到具体插件。
-import { getState } from './store.js'
+import { getState, logRecent } from './store.js'
 import { getPlugin } from './pluginManager.js'
 import { clear } from './ui.js'
 
@@ -17,6 +17,7 @@ export function initRouter(mountEl) {
     const id = currentId()
     const plugin = getPlugin(id) || getPlugin('overview')
     clear(mountEl)
+    if (plugin?.id) logRecent(plugin.id)
     if (plugin?.mount) plugin.mount(mountEl, { navigate })
     document.title = '一人公司工作中台 · ' + (plugin?.name || '')
   }
