@@ -165,13 +165,13 @@ function pickRandomGuaNames(k){
 function ensureStyle(){
   if(document.getElementById("yg-style")) return
   const css = `
-  .yg-ft{position:relative;height:124px;overflow:hidden;border:1px dashed var(--border);border-radius:14px;
+  .yg-ft{position:relative;height:372px;overflow:hidden;border:1px dashed var(--border);border-radius:14px;
     background:var(--panel-2);cursor:pointer;display:flex;align-items:center;justify-content:center;margin:4px 0 2px;
     transition:border-color .2s,box-shadow .2s;}
   .yg-ft:hover{border-color:var(--primary);box-shadow:0 0 0 3px rgba(43,108,255,.10);}
   .yg-ft .falling-text-target{display:inline-block;text-align:center;padding:0 10px;user-select:none;}
   .yg-ft .word{display:inline-block;color:var(--primary);font-family:"Songti SC","STSong",serif;font-weight:600;
-    letter-spacing:1px;white-space:nowrap;cursor:grab;font-size:1.5rem;}
+    letter-spacing:1px;white-space:nowrap;cursor:grab;font-size:0.75rem;}
   .yg-ft .word:active{cursor:grabbing;}
   .yg-ft .word.yg-ft-hl{color:var(--ok);}
   .yg-ft .ft-space{display:inline-block;}
@@ -233,8 +233,8 @@ function ensureStyle(){
   .yg-clear:hover{background:rgba(255,107,107,.12);}
   .yg-foot{color:var(--text-3);font-size:11px;margin-top:18px;text-align:center;letter-spacing:1px;line-height:1.7;}
   @media (max-width:600px){
-    .yg-ft{height:110px;}
-    .yg-ft .word{font-size:1.25rem;}
+    .yg-ft{height:330px;}
+    .yg-ft .word{font-size:0.65rem;}
     .yg-wish{width:100%;max-width:340px;}
   }`
   const style = document.createElement("style")
@@ -301,11 +301,14 @@ export function renderYiguaWidget(root){
   ])
   root.append(page)
 
+  const FT_COLORS = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#06b6d4','#f97316','#84cc16']
+
   /* —— 卦字互动区挂载 + 点击摇卦 —— */
   const falling = mountFallingText(ftBox, {
     words: pickRandomGuaNames(9),
-    gravity: 0.9, fontSize: '1.5rem', wordSpacing: '8px',
-    highlightWords: [], highlightClass: 'yg-ft-hl'
+    gravity: 0.9, fontSize: '0.75rem', wordSpacing: '10px',
+    highlightWords: [], highlightClass: 'yg-ft-hl',
+    colors: FT_COLORS
   })
   ftBox.addEventListener('click', startMeditate)
 
@@ -389,10 +392,11 @@ export function renderYiguaWidget(root){
     ftCount.hidden = true
   }
 
-  function resetFalling(){
+  function askAgain(){
     cancelMeditate()
     falling.reset(pickRandomGuaNames(9))
     hintEl.textContent = "静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。"
+    startMeditate()
   }
 
   /* —— 静默 5 秒 —— */
@@ -419,7 +423,7 @@ export function renderYiguaWidget(root){
     }, 1000)
   }
 
-  resetBtn.addEventListener('click', resetFalling)
+  resetBtn.addEventListener('click', askAgain)
 
   function drawGua(){
     const idx = Math.floor(Math.random()*64)
