@@ -24,7 +24,8 @@ export function mountFallingText(container, opts = {}) {
   }).join(`<span class="ft-space" style="display:inline-block;width:${wordSpacing}"></span>`)
   container.appendChild(target)
 
-  const spans = Array.from(target.querySelectorAll('.word'))
+  let currentWords = [...words]
+  let spans = Array.from(target.querySelectorAll('.word'))
   let engine = null, runner = null, rafId = null, mouse = null, currentPairs = []
 
   function teardown() {
@@ -101,5 +102,16 @@ export function mountFallingText(container, opts = {}) {
     rafId = requestAnimationFrame(loop)
   }
 
-  return { start, restore, destroy: teardown }
+  function reset(newWords) {
+    teardown()
+    if (Array.isArray(newWords) && newWords.length) currentWords = newWords
+    target.innerHTML = currentWords.map((w) => {
+      const hl = highlightWords.some((h) => w.startsWith(h)) ? ` ${highlightClass}` : ''
+      return `<span class="word${hl}">${w}</span>`
+    }).join(`<span class="ft-space" style="display:inline-block;width:${wordSpacing}"></span>`)
+    spans = Array.from(target.querySelectorAll('.word'))
+    restore()
+  }
+
+  return { start, restore, reset, destroy: teardown }
 }
