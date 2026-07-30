@@ -95,6 +95,7 @@ function render() {
 
   footer.append(skip, next)
   card.append(title, body, footer)
+  draw() // 渲染首屏（修复：否则向导空白且整条分支被打包器摇树移除）
   document.body.append(overlay)
 }
 
