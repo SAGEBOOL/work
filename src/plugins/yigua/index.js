@@ -155,12 +155,12 @@ async function aiReading(q, g, idx){
 function ensureStyle(){
   if(document.getElementById("yg-style")) return
   const css = `
-  .yg-wrap{max-width:760px;margin:0 auto;padding:8px 4px 40px;}
+  .yg-wrap{max-width:760px;margin:0 auto;padding:8px 0 40px;}
   .yg-head{text-align:center;margin:6px 0 18px;}
   .yg-head h1{font-family:"Songti SC","STSong",serif;font-size:26px;letter-spacing:6px;margin:0;
     background:linear-gradient(90deg,var(--yg-gold-soft),var(--yg-gold));-webkit-background-clip:text;background-clip:text;color:transparent;}
   .yg-head p{color:var(--text-3);font-size:13px;margin:6px 0 0;letter-spacing:1px;}
-  .yg-row{display:flex;align-items:center;gap:26px;flex-wrap:wrap;justify-content:center;margin:8px 0 6px;}
+  .yg-row{display:flex;align-items:center;gap:26px;flex-wrap:nowrap;justify-content:flex-start;margin:8px 0 6px;width:100%;}
   .yg-orb{
     width:150px;height:150px;border-radius:50%;flex:0 0 150px;
     display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;user-select:none;
@@ -176,7 +176,7 @@ function ensureStyle(){
     50%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(212,175,55,.32),0 0 60px rgba(212,175,55,.42),inset 0 0 64px rgba(212,175,55,.22);}}
   @keyframes yg-breathe-slow{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(212,175,55,.2),0 0 34px rgba(212,175,55,.25),inset 0 0 54px rgba(212,175,55,.14);}
     50%{transform:scale(1.04);box-shadow:0 0 0 1px rgba(212,175,55,.36),0 0 80px rgba(212,175,55,.5),inset 0 0 74px rgba(212,175,55,.26);}}
-  .yg-wish{flex:1 1 260px;min-width:240px;max-width:380px;}
+  .yg-wish{flex:1 1 auto;min-width:240px;display:flex;flex-direction:column;}
   .yg-wish label{display:block;font-size:13px;color:var(--text-2);margin-bottom:8px;letter-spacing:1px;}
   .yg-wish-input{width:100%;padding:12px 14px;border-radius:12px;background:var(--panel-2);
     border:1px solid var(--border);color:var(--text);font-size:15px;font-family:inherit;outline:none;resize:none;}
@@ -214,7 +214,7 @@ function ensureStyle(){
   .yg-chart-head{display:flex;justify-content:space-between;align-items:baseline;}
   .yg-chart-head h3{margin:0;font-size:16px;letter-spacing:2px;color:var(--yg-gold-soft);font-weight:600;}
   .yg-chart-head .sub{color:var(--text-3);font-size:12px;}
-  #ygChart{width:100%;height:210px;display:block;}
+  #ygChart{width:100%;height:210px;display:block;overflow:hidden;border-radius:8px;background:var(--panel-2);}
   .yg-chart-empty{color:var(--text-3);font-size:13px;text-align:center;padding:26px 0;}
   .yg-detail{margin-top:12px;padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);}
   .yg-detail[hidden]{display:none;}
@@ -231,8 +231,9 @@ function ensureStyle(){
   .yg-clear:hover{background:rgba(255,107,107,.12);}
   .yg-foot{color:var(--text-3);font-size:11px;margin-top:26px;text-align:center;letter-spacing:1px;line-height:1.7;}
   @media (max-width:600px){
-    .yg-row{gap:16px;}
-    .yg-orb{width:130px;height:130px;flex-basis:130px;}
+    .yg-row{gap:16px;flex-wrap:wrap;justify-content:center;}
+    .yg-orb{width:130px;height:130px;flex:0 0 130px;}
+    .yg-wish{width:100%;max-width:380px;}
   }`
   const style = document.createElement("style")
   style.id = "yg-style"
@@ -276,7 +277,7 @@ export const yiguaPlugin = {
       el('div', { class:'yg-luck-row' }, [luckTag, el('div', { class:'yg-luck-track' }, [luckFill])])
     ])
 
-    const chart = el('svg', { id:'ygChart', viewBox:'0 0 420 210', preserveAspectRatio:'none' })
+    const chart = el('div', { id:'ygChart' })
     const chartEmpty = el('div', { class:'yg-chart-empty' }, ['尚无记录，点击上方圆占第一卦'])
     const detail = el('div', { class:'yg-detail', hidden:true })
     const clearBtn = el('button', { class:'yg-clear' }, ['清空记录'])
@@ -322,8 +323,8 @@ export const yiguaPlugin = {
       let grid = ""
       ;[0,25,50,75,100].forEach(g=>{
         const y = py(g)
-        grid += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`
-        grid += `<text x="${padL-6}" y="${y+4}" fill="var(--text-3)" font-size="9" text-anchor="end">${g}</text>`
+        grid += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
+        grid += `<text x="${padL-6}" y="${y+4}" style="fill:var(--text-3)" font-size="9" text-anchor="end">${g}</text>`
       })
       let area = `M ${px(0)} ${py(h[0].luck)} `
       h.forEach((d,i)=> area += `L ${px(i)} ${py(d.luck)} `)
@@ -333,16 +334,18 @@ export const yiguaPlugin = {
         const x = px(i), y = py(d.luck)
         line += (i===0 ? `M ${x} ${y} ` : `L ${x} ${y} `)
         const lv = luckLevel(d.luck)
-        dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="5" fill="${lv.c}" stroke="var(--panel)" stroke-width="1.5" style="cursor:pointer"/>`
-        if(n <= 12) dots += `<text x="${x}" y="${y-9}" fill="var(--yg-gold-soft)" font-size="9" text-anchor="middle">${d.luck}</text>`
+        dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="5" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
+        if(n <= 12) dots += `<text x="${x}" y="${y-9}" style="fill:var(--yg-gold-soft)" font-size="9" text-anchor="middle">${d.luck}</text>`
       })
       let xlab = ""
       const labels = n <= 8 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
-      labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-8}" fill="var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
-      chart.innerHTML = grid
+      labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-8}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
+      chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block">`
+        + grid
         + `<path d="${area}" fill="rgba(212,175,55,.14)"/>`
-        + `<path d="${line}" fill="none" stroke="var(--yg-gold)" stroke-width="2" stroke-linejoin="round"/>`
+        + `<path d="${line}" fill="none" style="stroke:var(--yg-gold)" stroke-width="2" stroke-linejoin="round"/>`
         + dots + xlab
+        + `</svg>`
     }
 
     function showDetail(idx){
