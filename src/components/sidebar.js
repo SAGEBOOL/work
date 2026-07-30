@@ -4,6 +4,7 @@ import { el, clear } from '../core/ui.js'
 import { pluginsByGroup } from '../core/pluginManager.js'
 import { currentId } from '../core/router.js'
 import { closeNav } from './nav.js'
+import { getFavorites, toggleFavorite, getRecent } from '../core/store.js'
 
 const GROUP_ORDER = ['概览', '基础办公', '专业功能', '休闲娱乐', '设置']
 
@@ -103,6 +104,41 @@ function setupLineList(listEl, opts = {}) {
 
 const cleanups = []
 
+// 构造单个侧边栏项（含星标收藏按钮）
+function makeItem(p, active, navigate, favSet) {
+  const star = el('button', {
+    class: 'fav-btn' + (favSet.has(p.id) ? ' on' : ''),
+    title: favSet.has(p.id) ? '取消收藏' : '收藏到常用',
+    onclick: (e) => {
+      e.stopPropagation()
+      toggleFavorite(p.id)
+      renderSidebar(document.querySelector('.sidebar'), { navigate })
+    }
+  }, [favSet.has(p.id) ? '★' : '☆'])
+  const item = el('li', {
+    class: 'line-sidebar__item',
+    'aria-current': active === p.id ? 'true' : undefined
+  }, [
+    star,
+    el('span', { class: 'line-sidebar__marker', 'aria-hidden': 'true' }),
+    el('span', { class: 'line-sidebar__label' }, [
+      el('span', { class: 'line-sidebar__ico' }, [p.icon || '•']),
+      el('span', { class: 'line-sidebar__text' }, [p.name])
+    ])
+  ])
+  item.onclick = () => { navigate(p.id); closeNav() }
+  return item
+}
+
+function addGroup(root, label, items, active, navigate, favSet, cls) {
+  if (!items.length) return
+  root.append(el('div', { class: 'group-label' + (cls ? ' ' + cls : '') }, [label]))
+  const list = el('ul', { class: 'line-sidebar__list' })
+  items.forEach((p) => list.append(makeItem(p, active, navigate, favSet)))
+  root.append(el('nav', { class: 'line-sidebar line-sidebar--markers line-sidebar--scale-tick' }, [list]))
+  cleanups.push(setupLineList(list))
+}
+
 export function renderSidebar(root, { navigate }) {
   // 取消旧动画循环
   cleanups.forEach((fn) => fn())
@@ -118,31 +154,30 @@ export function renderSidebar(root, { navigate }) {
 
   const groups = pluginsByGroup()
   const active = currentId()
+  const favSet = new Set(getFavorites())
+
+  // 顶部「常用」：收藏 + 最近（去重，排除概览/设置）
+  const recent = getRecent().filter((id) => id !== 'overview' && id !== 'settings')
+  const favIds = [...new Set([...getFavorites(), ...recent])].filter((id) => id !== 'overview' && id !== 'settings')
+  const favPlugins = favIds
+    .map((id) => allPluginsLookup().find((p) => p.id === id))
+    .filter(Boolean)
+  addGroup(root, '常用', favPlugins, active, navigate, favSet, 'fav-group-label')
 
   for (const g of GROUP_ORDER) {
     const items = groups[g]
     if (!items || !items.length) continue
-    root.append(el('div', { class: 'group-label' }, [g]))
-
-    const list = el('ul', { class: 'line-sidebar__list' })
-    for (const p of items) {
-      const isActive = p.id === active
-      const item = el('li', {
-        class: 'line-sidebar__item',
-        'aria-current': isActive ? 'true' : undefined
-      }, [
-        el('span', { class: 'line-sidebar__marker', 'aria-hidden': 'true' }),
-        el('span', { class: 'line-sidebar__label' }, [
-          el('span', { class: 'line-sidebar__ico' }, [p.icon || '•']),
-          el('span', { class: 'line-sidebar__text' }, [p.name])
-        ])
-      ])
-      item.onclick = () => { navigate(p.id); closeNav() }
-      list.append(item)
-    }
-
-    const nav = el('nav', { class: 'line-sidebar line-sidebar--markers line-sidebar--scale-tick' }, [list])
-    root.append(nav)
-    cleanups.push(setupLineList(list))
+    addGroup(root, g, items, active, navigate, favSet, null)
   }
+}
+
+// 缓存一次全量插件，避免重复调用
+let _allCache = null
+function allPluginsLookup() {
+  if (!_allCache) {
+    _allCache = []
+    const g = pluginsByGroup()
+    Object.values(g).forEach((arr) => _allCache.push(...arr))
+  }
+  return _allCache
 }
