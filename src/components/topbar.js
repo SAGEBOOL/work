@@ -1,9 +1,10 @@
-// 顶栏：显示当前默认 AI 供应商状态、主题切换、快捷设置入口。
+// 顶栏：显示当前默认 AI 供应商状态、主题切换、快捷设置入口、命令面板入口。
 import { el, clear } from '../core/ui.js'
 import { getSettings, update } from '../core/store.js'
 import { getProvider } from '../core/aiGateway.js'
 import { applyTheme } from '../core/ui.js'
 import { toggleNav } from './nav.js'
+import { openPalette } from './commandPalette.js'
 
 export function renderTopbar(root, { navigate }) {
   clear(root)
@@ -38,8 +39,13 @@ export function renderTopbar(root, { navigate }) {
     onclick: () => toggleNav()
   }, ['☰'])
 
+  const searchBtn = el('button', {
+    class: 'btn-icon', title: '命令面板（⌘K / Ctrl+K）',
+    onclick: () => openPalette()
+  }, ['🔍'])
+
   root.append(
-    el('div', { class: 'topbar-left' }, [menuBtn, status]),
+    el('div', { class: 'topbar-left' }, [menuBtn, searchBtn, status]),
     el('div', { class: 'topbar-right' }, [themeBtn, setBtn])
   )
 }
