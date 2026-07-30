@@ -108,7 +108,7 @@ const cleanups = []
 function makeItem(p, active, navigate, favSet) {
   const star = el('button', {
     class: 'fav-btn' + (favSet.has(p.id) ? ' on' : ''),
-    title: favSet.has(p.id) ? '取消收藏' : '收藏到常用',
+    title: favSet.has(p.id) ? '取消收藏' : '收藏',
     onclick: (e) => {
       e.stopPropagation()
       toggleFavorite(p.id)
@@ -156,13 +156,19 @@ export function renderSidebar(root, { navigate }) {
   const active = currentId()
   const favSet = new Set(getFavorites())
 
-  // 顶部「常用」：收藏 + 最近（去重，排除概览/设置）
-  const recent = getRecent().filter((id) => id !== 'overview' && id !== 'settings')
-  const favIds = [...new Set([...getFavorites(), ...recent])].filter((id) => id !== 'overview' && id !== 'settings')
-  const favPlugins = favIds
+  // 顶部「收藏」：仅展示打了星标的功能（不含概览/设置）
+  const favPlugins = getFavorites()
+    .filter((id) => id !== 'overview' && id !== 'settings')
     .map((id) => allPluginsLookup().find((p) => p.id === id))
     .filter(Boolean)
-  addGroup(root, '常用', favPlugins, active, navigate, favSet, 'fav-group-label')
+  if (favPlugins.length) {
+    addGroup(root, '收藏', favPlugins, active, navigate, favSet, 'fav-group-label')
+  } else {
+    root.append(el('div', { class: 'group-label fav-group-label' }, [
+      el('span', {}, ['收藏']),
+      el('span', { class: 'fav-empty-hint' }, ['☆ 悬停功能可收藏'])
+    ]))
+  }
 
   for (const g of GROUP_ORDER) {
     const items = groups[g]
