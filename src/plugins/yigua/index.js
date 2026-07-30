@@ -1,9 +1,10 @@
 // 每天要一卦：点击呼吸圆 → 静默 5 秒心念所问 → 出卦象（六爻 SVG + 卦辞 + 白话）
 // + 结合心愿的 AI 解读（接入站点 AI 网关 callChat；未配置 Key 时回退模板解读）。
 // 底部折线走势图记录每次吉凶评分，点击任意点看当次详情。
+// 本模块导出 renderYiguaWidget，供概览页「全部功能」下方嵌入；不再作为独立插件。
 import { el } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
-import { callChat, getProvider, configuredProviders } from '../../core/aiGateway.js'
+import { callChat, getProvider } from '../../core/aiGateway.js'
 
 /* ===== 六十四卦数据（文王卦序） ===== */
 const GUA = [
@@ -94,21 +95,21 @@ function hexSVG(lines){
     const y = y0 + (5-i)*gap
     const v = lines[i]
     if(v === 1){
-      s += `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" stroke="var(--yg-gold)" stroke-width="4" stroke-linecap="round"/>`
+      s += `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" style="stroke:var(--primary)" stroke-width="4" stroke-linecap="round"/>`
     }else{
-      s += `<line x1="${x1}" y1="${y}" x2="${xm1}" y2="${y}" stroke="var(--yg-gold)" stroke-width="4" stroke-linecap="round"/>`
-      s += `<line x1="${xm2}" y1="${y}" x2="${x2}" y2="${y}" stroke="var(--yg-gold)" stroke-width="4" stroke-linecap="round"/>`
+      s += `<line x1="${x1}" y1="${y}" x2="${xm1}" y2="${y}" style="stroke:var(--primary)" stroke-width="4" stroke-linecap="round"/>`
+      s += `<line x1="${xm2}" y1="${y}" x2="${x2}" y2="${y}" style="stroke:var(--primary)" stroke-width="4" stroke-linecap="round"/>`
     }
   }
   s += `</svg>`
   return s
 }
 function luckLevel(v){
-  if(v >= 80) return { t:"大吉", c:"#2ec27e" }
+  if(v >= 80) return { t:"大吉", c:"var(--ok)" }
   if(v >= 65) return { t:"吉",   c:"#7fc97f" }
-  if(v >= 50) return { t:"中平", c:"#d4af37" }
+  if(v >= 50) return { t:"中平", c:"var(--primary)" }
   if(v >= 35) return { t:"小凶", c:"#e08a52" }
-  return { t:"凶", c:"#ff6b6b" }
+  return { t:"凶", c:"var(--off)" }
 }
 function escapeHtml(s){
   return (s||"").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
@@ -151,317 +152,285 @@ async function aiReading(q, g, idx){
   return await callChat({ messages, temperature: 0.85 })
 }
 
-/* ===== 样式（注入一次） ===== */
+/* ===== 样式（站点风格，注入一次） ===== */
 function ensureStyle(){
   if(document.getElementById("yg-style")) return
   const css = `
-  .yg-wrap{max-width:760px;margin:0 auto;padding:8px 0 40px;}
-  .yg-head{text-align:center;margin:6px 0 18px;}
-  .yg-head h1{font-family:"Songti SC","STSong",serif;font-size:26px;letter-spacing:6px;margin:0;
-    background:linear-gradient(90deg,var(--yg-gold-soft),var(--yg-gold));-webkit-background-clip:text;background-clip:text;color:transparent;}
-  .yg-head p{color:var(--text-3);font-size:13px;margin:6px 0 0;letter-spacing:1px;}
-  .yg-row{display:flex;align-items:center;gap:26px;flex-wrap:nowrap;justify-content:flex-start;margin:8px 0 6px;width:100%;}
+  .yg-row{display:flex;align-items:center;gap:20px;flex-wrap:nowrap;justify-content:flex-start;margin:6px 0 4px;width:100%;}
   .yg-orb{
-    width:150px;height:150px;border-radius:50%;flex:0 0 150px;
+    width:75px;height:75px;border-radius:50%;flex:0 0 75px;
     display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;user-select:none;
-    background:radial-gradient(circle at 35% 30%,#2c2c5e,#13132e 70%);
-    border:1px solid rgba(212,175,55,.4);color:var(--yg-gold-soft);font-size:15px;letter-spacing:2px;line-height:1.6;
-    box-shadow:0 0 0 1px rgba(212,175,55,.15),0 0 34px rgba(212,175,55,.28),inset 0 0 50px rgba(212,175,55,.12);
-    animation:yg-breathe 4.2s ease-in-out infinite;transition:transform .2s;padding:10px;
+    background:var(--panel);border:1px solid var(--border);color:var(--primary);font-size:12px;letter-spacing:1px;line-height:1.4;
+    box-shadow:0 0 0 1px rgba(43,108,255,.10),0 0 18px rgba(43,108,255,.16),inset 0 0 22px rgba(43,108,255,.06);
+    animation:yg-breathe 4.2s ease-in-out infinite;transition:transform .2s;padding:8px;
   }
   .yg-orb:active{transform:scale(.97);}
-  .yg-orb.meditate{animation:yg-breathe-slow 5s ease-in-out infinite;color:var(--text);}
-  .yg-orb .yg-count{font-size:48px;font-weight:700;color:var(--yg-gold);letter-spacing:0;}
-  @keyframes yg-breathe{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(212,175,55,.15),0 0 26px rgba(212,175,55,.18),inset 0 0 44px rgba(212,175,55,.10);}
-    50%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(212,175,55,.32),0 0 60px rgba(212,175,55,.42),inset 0 0 64px rgba(212,175,55,.22);}}
-  @keyframes yg-breathe-slow{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(212,175,55,.2),0 0 34px rgba(212,175,55,.25),inset 0 0 54px rgba(212,175,55,.14);}
-    50%{transform:scale(1.04);box-shadow:0 0 0 1px rgba(212,175,55,.36),0 0 80px rgba(212,175,55,.5),inset 0 0 74px rgba(212,175,55,.26);}}
-  .yg-wish{flex:1 1 auto;min-width:240px;display:flex;flex-direction:column;}
-  .yg-wish label{display:block;font-size:13px;color:var(--text-2);margin-bottom:8px;letter-spacing:1px;}
-  .yg-wish-input{width:100%;padding:12px 14px;border-radius:12px;background:var(--panel-2);
-    border:1px solid var(--border);color:var(--text);font-size:15px;font-family:inherit;outline:none;resize:none;}
+  .yg-orb.meditate{animation:yg-breathe-slow 5s ease-in-out infinite;}
+  .yg-orb .yg-count{font-size:26px;font-weight:700;color:var(--primary);letter-spacing:0;}
+  @keyframes yg-breathe{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(43,108,255,.10),0 0 14px rgba(43,108,255,.10),inset 0 0 20px rgba(43,108,255,.05);}
+    50%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(43,108,255,.22),0 0 34px rgba(43,108,255,.30),inset 0 0 28px rgba(43,108,255,.12);}}
+  @keyframes yg-breathe-slow{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(43,108,255,.14),0 0 18px rgba(43,108,255,.16),inset 0 0 22px rgba(43,108,255,.08);}
+    50%{transform:scale(1.04);box-shadow:0 0 0 1px rgba(43,108,255,.26),0 0 46px rgba(43,108,255,.36),inset 0 0 30px rgba(43,108,255,.16);}}
+  .yg-wish{flex:1 1 auto;min-width:220px;display:flex;flex-direction:column;}
+  .yg-wish label{display:block;font-size:13px;color:var(--text-2);margin-bottom:8px;letter-spacing:.5px;}
+  .yg-wish-input{width:100%;padding:10px 12px;border-radius:10px;background:var(--panel-2);
+    border:1px solid var(--border);color:var(--text);font-size:14px;font-family:inherit;outline:none;resize:none;}
   .yg-wish-input::placeholder{color:var(--text-3);}
-  .yg-wish-input:focus{border-color:var(--yg-gold);box-shadow:0 0 0 3px rgba(212,175,55,.12);}
-  .yg-wish-hint{color:var(--text-3);font-size:12px;margin-top:8px;line-height:1.6;}
-  .yg-hint{color:var(--text-3);font-size:13px;text-align:center;margin:14px 0 4px;min-height:18px;}
-  .yg-card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
-    box-shadow:var(--shadow);padding:22px 20px;margin-top:18px;}
+  .yg-wish-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(43,108,255,.12);}
+  .yg-hint{color:var(--text-3);font-size:13px;margin:12px 0 4px;min-height:18px;}
   .yg-result[hidden]{display:none;}
-  .yg-hex{display:flex;flex-direction:column;align-items:center;gap:7px;margin-bottom:12px;}
-  .yg-name{text-align:center;font-size:22px;letter-spacing:3px;margin:4px 0 2px;color:var(--yg-gold-soft);font-family:"Songti SC","STSong",serif;}
+  .yg-hex{display:flex;flex-direction:column;align-items:center;gap:7px;margin:10px 0 12px;}
+  .yg-name{text-align:center;font-size:20px;letter-spacing:3px;margin:4px 0 2px;color:var(--primary);font-family:"Songti SC","STSong",serif;}
   .yg-sub{text-align:center;color:var(--text-3);font-size:12px;letter-spacing:1px;margin-bottom:12px;}
-  .yg-wq{text-align:center;font-size:13px;color:var(--yg-gold-soft);margin:0 0 12px;padding:7px 12px;
-    border:1px dashed rgba(212,175,55,.4);border-radius:8px;background:rgba(212,175,55,.07);}
+  .yg-wq{text-align:center;font-size:13px;color:var(--primary);margin:0 0 12px;padding:7px 12px;
+    border:1px dashed var(--primary);border-radius:8px;background:var(--primary-soft);}
   .yg-wq.empty{display:none;}
-  .yg-tuan{border-left:3px solid var(--yg-gold);padding:8px 14px;margin:0 0 12px;background:rgba(212,175,55,.08);
-    border-radius:0 8px 8px 0;font-size:15px;line-height:1.8;}
-  .yg-tuan b{color:var(--yg-gold-soft);}
+  .yg-tuan{border-left:3px solid var(--primary);padding:8px 14px;margin:0 0 12px;background:var(--primary-soft);
+    border-radius:0 8px 8px 0;font-size:14px;line-height:1.8;}
+  .yg-tuan b{color:var(--primary);}
   .yg-desc{font-size:14px;line-height:1.8;color:var(--text-2);margin:0 0 12px;}
-  .yg-combine{font-size:14px;line-height:1.8;color:var(--text);margin:0 0 16px;border-left:3px solid var(--ok);
-    padding:8px 14px;background:rgba(46,194,126,.08);border-radius:0 8px 8px 0;}
-  .yg-ai{font-size:14px;line-height:1.85;color:var(--text);margin:0 0 16px;border-left:3px solid var(--yg-gold-soft);
-    padding:10px 14px;background:rgba(212,175,55,.07);border-radius:0 8px 8px 0;}
-  .yg-ai .yg-ai-tag{display:inline-block;font-size:11px;color:var(--yg-gold-soft);border:1px solid var(--yg-gold);
+  .yg-ai{font-size:14px;line-height:1.85;color:var(--text);margin:0 0 16px;border-left:3px solid var(--primary);
+    padding:10px 14px;background:var(--primary-soft);border-radius:0 8px 8px 0;}
+  .yg-ai .yg-ai-tag{display:inline-block;font-size:11px;color:var(--primary);border:1px solid var(--primary);
     border-radius:10px;padding:1px 8px;margin-bottom:8px;letter-spacing:1px;}
   .yg-ai.loading{opacity:.7;}
-  .yg-fallback{font-size:12px;color:var(--text-3);margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-  .yg-fallback button{background:transparent;border:1px solid var(--yg-gold);color:var(--yg-gold-soft);
-    font-size:12px;padding:4px 12px;border-radius:8px;cursor:pointer;}
+  .yg-fallback{font-size:12px;color:var(--text-3);margin-top:8px;}
+  .yg-fallback a{color:var(--primary);}
   .yg-luck-row{display:flex;align-items:center;gap:12px;}
-  .yg-luck-tag{font-size:15px;font-weight:700;padding:3px 14px;border-radius:20px;letter-spacing:2px;border:1px solid;}
+  .yg-luck-tag{font-size:14px;font-weight:700;padding:3px 14px;border-radius:20px;letter-spacing:2px;border:1px solid;}
   .yg-luck-track{flex:1;height:8px;border-radius:6px;background:var(--panel-2);overflow:hidden;}
   .yg-luck-fill{height:100%;border-radius:6px;transition:width .8s ease;}
-  .yg-chart-head{display:flex;justify-content:space-between;align-items:baseline;}
-  .yg-chart-head h3{margin:0;font-size:16px;letter-spacing:2px;color:var(--yg-gold-soft);font-weight:600;}
+  .yg-chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;}
+  .yg-chart-head h3{margin:0;font-size:15px;letter-spacing:1px;color:var(--text);font-weight:600;}
   .yg-chart-head .sub{color:var(--text-3);font-size:12px;}
-  #ygChart{width:100%;height:210px;display:block;overflow:hidden;border-radius:8px;background:var(--panel-2);}
-  .yg-chart-empty{color:var(--text-3);font-size:13px;text-align:center;padding:26px 0;}
+  #ygChart{width:100%;height:200px;display:block;overflow:hidden;border-radius:8px;background:var(--panel-2);margin-top:6px;}
+  .yg-chart-empty{color:var(--text-3);font-size:13px;text-align:center;padding:24px 0;}
   .yg-detail{margin-top:12px;padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);}
   .yg-detail[hidden]{display:none;}
   .yg-detail .gd-head{display:flex;justify-content:space-between;align-items:center;}
-  .yg-detail .gd-name{font-size:16px;color:var(--yg-gold-soft);letter-spacing:2px;font-family:"Songti SC","STSong",serif;}
+  .yg-detail .gd-name{font-size:16px;color:var(--primary);letter-spacing:2px;font-family:"Songti SC","STSong",serif;}
   .yg-detail .gd-close{cursor:pointer;color:var(--text-3);border:none;background:transparent;font-size:20px;line-height:1;padding:0 4px;}
   .yg-detail .gd-time{color:var(--text-3);font-size:12px;margin:2px 0 8px;}
-  .yg-detail .gd-q{font-size:13px;color:var(--yg-gold-soft);margin:0 0 8px;}
+  .yg-detail .gd-q{font-size:13px;color:var(--primary);margin:0 0 8px;}
   .yg-detail .gd-tuan{font-size:13px;color:var(--text);margin:0 0 6px;}
   .yg-detail .gd-desc{font-size:13px;color:var(--text-2);line-height:1.7;margin:0 0 6px;}
-  .yg-detail .gd-ai{font-size:13px;color:var(--text);line-height:1.75;margin-top:6px;border-left:3px solid var(--yg-gold-soft);padding-left:10px;}
-  .yg-clear{margin-top:8px;background:transparent;border:1px solid rgba(255,107,107,.5);color:#ff8a80;
+  .yg-detail .gd-ai{font-size:13px;color:var(--text);line-height:1.75;margin-top:6px;border-left:3px solid var(--primary);padding-left:10px;}
+  .yg-clear{margin-top:8px;background:transparent;border:1px solid rgba(255,107,107,.5);color:var(--off);
     font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;letter-spacing:1px;}
   .yg-clear:hover{background:rgba(255,107,107,.12);}
-  .yg-foot{color:var(--text-3);font-size:11px;margin-top:26px;text-align:center;letter-spacing:1px;line-height:1.7;}
+  .yg-foot{color:var(--text-3);font-size:11px;margin-top:18px;text-align:center;letter-spacing:1px;line-height:1.7;}
   @media (max-width:600px){
-    .yg-row{gap:16px;flex-wrap:wrap;justify-content:center;}
-    .yg-orb{width:130px;height:130px;flex:0 0 130px;}
-    .yg-wish{width:100%;max-width:380px;}
+    .yg-row{gap:14px;flex-wrap:wrap;justify-content:center;}
+    .yg-orb{width:64px;height:64px;flex:0 0 64px;}
+    .yg-wish{width:100%;max-width:340px;}
   }`
   const style = document.createElement("style")
   style.id = "yg-style"
   style.textContent = css
   document.head.appendChild(style)
-  // 注入品牌色变量（gold），挂在 :root，供 SVG stroke 等引用
-  const root = document.documentElement
-  if(!root.style.getPropertyValue("--yg-gold")){
-    root.style.setProperty("--yg-gold", "#d4af37")
-    root.style.setProperty("--yg-gold-soft", "#e8c860")
-  }
 }
 
-export const yiguaPlugin = {
-  id: 'yigua',
-  name: '每天要一卦',
-  icon: '☯',
-  group: '休闲娱乐',
-  mount(root){
-    ensureStyle()
+/* ===== 渲染入口：供概览页嵌入 ===== */
+export function renderYiguaWidget(root){
+  ensureStyle()
+  let meditating = false, timer = null
 
-    let meditating = false, timer = null
+  const orb = el('div', { class:'yg-orb', html:'☯<br>点击要一卦' })
+  const orbHint = el('p', { class:'yg-hint' }, ['静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。'])
+  const wishInput = el('textarea', { class:'yg-wish-input', rows:'2', maxlength:'40',
+    placeholder:'写下你心中所问之事（可选，最多 40 字）' })
 
-    const orb = el('div', { class:'yg-orb', html:'☯<br>点击要一卦' })
-    const orbText = orb // 直接改文本
-    const orbHint = el('p', { class:'yg-hint' }, ['写下心愿，点击左侧圆，静默 5 秒'])
-    const wishInput = el('textarea', { class:'yg-wish-input', rows:'2', maxlength:'40',
-      placeholder:'写下你心中所问之事（可选，最多 40 字）' })
+  const hexBox = el('div', { class:'yg-hex' })
+  const nameEl = el('div', { class:'yg-name' })
+  const subEl = el('div', { class:'yg-sub' })
+  const wqEl = el('div', { class:'yg-wq empty' })
+  const tuanEl = el('div', { class:'yg-tuan' })
+  const descEl = el('p', { class:'yg-desc' })
+  const aiBox = el('div', { class:'yg-ai' })
+  const luckTag = el('span', { class:'yg-luck-tag' })
+  const luckFill = el('div', { class:'yg-luck-fill' })
+  const result = el('section', { class:'yg-result', hidden:true }, [
+    hexBox, nameEl, subEl, wqEl, tuanEl, descEl, aiBox,
+    el('div', { class:'yg-luck-row' }, [luckTag, el('div', { class:'yg-luck-track' }, [luckFill])])
+  ])
 
-    const hexBox = el('div', { class:'yg-hex' })
-    const nameEl = el('div', { class:'yg-name' })
-    const subEl = el('div', { class:'yg-sub' })
-    const wqEl = el('div', { class:'yg-wq empty' })
-    const tuanEl = el('div', { class:'yg-tuan' })
-    const descEl = el('p', { class:'yg-desc' })
-    const aiBox = el('div', { class:'yg-ai' })
-    const luckTag = el('span', { class:'yg-luck-tag' })
-    const luckFill = el('div', { class:'yg-luck-fill' })
-    const result = el('section', { class:'yg-card yg-result', hidden:true }, [
-      hexBox, nameEl, subEl, wqEl, tuanEl, descEl, aiBox,
-      el('div', { class:'yg-luck-row' }, [luckTag, el('div', { class:'yg-luck-track' }, [luckFill])])
-    ])
+  const chart = el('div', { id:'ygChart' })
+  const chartEmpty = el('div', { class:'yg-chart-empty' }, ['尚无记录，点击上方圆占第一卦'])
+  const detail = el('div', { class:'yg-detail', hidden:true })
+  const clearBtn = el('button', { class:'yg-clear' }, ['清空记录'])
 
-    const chart = el('div', { id:'ygChart' })
-    const chartEmpty = el('div', { class:'yg-chart-empty' }, ['尚无记录，点击上方圆占第一卦'])
-    const detail = el('div', { class:'yg-detail', hidden:true })
-    const clearBtn = el('button', { class:'yg-clear' }, ['清空记录'])
+  const chartCard = el('section', {}, [
+    el('div', { class:'yg-chart-head' }, [
+      el('div', {}, [el('h3', {}, ['卦象走势']), el('p', { class:'sub' }, ['每次占得的吉凶评分连线 · 点击任意一点看当次详情'])])
+    ]),
+    chart, chartEmpty, detail,
+    el('div', { style:'text-align:right' }, [clearBtn])
+  ])
 
-    const chartCard = el('section', { class:'yg-card' }, [
-      el('div', { class:'yg-chart-head' }, [
-        el('div', {}, [el('h3', {}, ['卦象走势']), el('p', { class:'sub' }, ['每次占得的吉凶评分连线 · 点击任意一点看当次详情'])]),
-      ]),
-      chart, chartEmpty, detail,
-      el('div', { style:'text-align:right' }, [clearBtn])
-    ])
+  const page = el('div', {}, [
+    el('div', { class:'yg-row' }, [
+      orb,
+      el('div', { class:'yg-wish' }, [
+        el('label', {}, ['🙏 写下心愿，心念其事5秒，开始要挂']),
+        wishInput
+      ])
+    ]),
+    orbHint,
+    result,
+    chartCard,
+    el('div', { class:'yg-foot' }, ['卦辞据《周易》文王卦序整理；解读结合 AI 与白话参考，仅供娱乐与内省，重大决策请理性判断。'])
+  ])
+  root.append(page)
 
-    const page = el('div', { class:'yg-wrap' }, [
-      el('div', { class:'yg-head' }, [
-        el('h1', {}, ['每 日 一 卦']),
-        el('p', {}, ['心静则灵 · 每日一占'])
-      ]),
-      el('div', { class:'yg-row' }, [
-        orb,
-        el('div', { class:'yg-wish' }, [
-          el('label', {}, ['🙏 写下你心中所问之事']),
-          wishInput,
-          el('div', { class:'yg-wish-hint' }, ['静默 5 秒，心念其事；卦成后 AI 会结合你的问题解卦。'])
-        ])
-      ]),
-      orbHint,
-      result,
-      chartCard,
-      el('div', { class:'yg-foot' }, ['卦辞据《周易》文王卦序整理；解读结合 AI 与白话参考，仅供娱乐与内省，重大决策请理性判断。'])
-    ])
-    root.append(page)
-
-    /* —— 走势图渲染 —— */
-    function drawChart(){
-      const h = loadHist()
-      if(h.length === 0){ chart.innerHTML = ""; chartEmpty.style.display = "block"; return }
-      chartEmpty.style.display = "none"
-      const W=420, H=210, padL=34, padR=12, padT=16, padB=26
-      const xs = W-padL-padR, ys = H-padT-padB
-      const n = h.length
-      const px = (i)=> n===1 ? padL+xs/2 : padL + xs*i/(n-1)
-      const py = (v)=> padT + ys*(1 - v/100)
-      let grid = ""
-      ;[0,25,50,75,100].forEach(g=>{
-        const y = py(g)
-        grid += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
-        grid += `<text x="${padL-6}" y="${y+4}" style="fill:var(--text-3)" font-size="9" text-anchor="end">${g}</text>`
-      })
-      let area = `M ${px(0)} ${py(h[0].luck)} `
-      h.forEach((d,i)=> area += `L ${px(i)} ${py(d.luck)} `)
-      area += `L ${px(n-1)} ${padT+ys} L ${px(0)} ${padT+ys} Z`
-      let line = "", dots = ""
-      h.forEach((d,i)=>{
-        const x = px(i), y = py(d.luck)
-        line += (i===0 ? `M ${x} ${y} ` : `L ${x} ${y} `)
-        const lv = luckLevel(d.luck)
-        dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="5" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
-        if(n <= 12) dots += `<text x="${x}" y="${y-9}" style="fill:var(--yg-gold-soft)" font-size="9" text-anchor="middle">${d.luck}</text>`
-      })
-      let xlab = ""
-      const labels = n <= 8 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
-      labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-8}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
-      chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block">`
-        + grid
-        + `<path d="${area}" fill="rgba(212,175,55,.14)"/>`
-        + `<path d="${line}" fill="none" style="stroke:var(--yg-gold)" stroke-width="2" stroke-linejoin="round"/>`
-        + dots + xlab
-        + `</svg>`
-    }
-
-    function showDetail(idx){
-      const h = loadHist()
-      const d = h[idx]
-      if(!d) return
-      const g = GUA[d.i]
+  /* —— 走势图渲染 —— */
+  function drawChart(){
+    const h = loadHist()
+    if(h.length === 0){ chart.innerHTML = ""; chartEmpty.style.display = "block"; return }
+    chartEmpty.style.display = "none"
+    const W=420, H=200, padL=34, padR=12, padT=16, padB=26
+    const xs = W-padL-padR, ys = H-padT-padB
+    const n = h.length
+    const px = (i)=> n===1 ? padL+xs/2 : padL + xs*i/(n-1)
+    const py = (v)=> padT + ys*(1 - v/100)
+    let grid = ""
+    ;[0,25,50,75,100].forEach(g=>{
+      const y = py(g)
+      grid += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
+      grid += `<text x="${padL-6}" y="${y+4}" style="fill:var(--text-3)" font-size="9" text-anchor="end">${g}</text>`
+    })
+    let area = `M ${px(0)} ${py(h[0].luck)} `
+    h.forEach((d,i)=> area += `L ${px(i)} ${py(d.luck)} `)
+    area += `L ${px(n-1)} ${padT+ys} L ${px(0)} ${padT+ys} Z`
+    let line = "", dots = ""
+    h.forEach((d,i)=>{
+      const x = px(i), y = py(d.luck)
+      line += (i===0 ? `M ${x} ${y} ` : `L ${x} ${y} `)
       const lv = luckLevel(d.luck)
-      const dt = new Date(d.t)
-      const time = `${dt.getMonth()+1}月${dt.getDate()}日 ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-      const closeBtn = el('button', { class:'gd-close', onclick:()=>{ detail.hidden = true } }, ['×'])
-      detail.innerHTML = ""
-      detail.append(
-        el('div', { class:'gd-head' }, [
-          el('span', { class:'gd-name', html:`${g.n} · <span style="color:${lv.c}">${lv.t}</span>` }),
-          closeBtn
-        ]),
-        el('div', { class:'gd-time' }, [`${time}　评分 ${d.luck}`]),
-        d.q ? el('div', { class:'gd-q', html:`❖ 你问：${escapeHtml(d.q)}` }) : el('div', {}),
-        el('div', { class:'gd-tuan', html:`<b>卦辞</b>　${escapeHtml(g.t)}` }),
-        el('div', { class:'gd-desc' }, [g.d]),
-        el('div', { class:'gd-ai', html:`<b style="color:var(--yg-gold-soft)">AI 解卦</b>　${escapeHtml(d.ai || combineReading(d.q||"", g))}` })
-      )
-      detail.hidden = false
-    }
-
-    chart.addEventListener("click", (e)=>{
-      const c = e.target.closest("circle[data-idx]")
-      if(c) showDetail(parseInt(c.getAttribute("data-idx"), 10))
+      dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="5" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
+      if(n <= 12) dots += `<text x="${x}" y="${y-9}" style="fill:var(--primary)" font-size="9" text-anchor="middle">${d.luck}</text>`
     })
-    clearBtn.addEventListener("click", ()=>{
-      if(confirm("确定清空所有占卦记录？")){
-        localStorage.removeItem(HKEY)
-        detail.hidden = true
-        drawChart()
-      }
-    })
+    let xlab = ""
+    const labels = n <= 8 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
+    labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-8}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
+    chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block">`
+      + grid
+      + `<path d="${area}" fill="rgba(43,108,255,.12)"/>`
+      + `<path d="${line}" fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round"/>`
+      + dots + xlab
+      + `</svg>`
+  }
 
-    /* —— 静默 5 秒 —— */
-    function startMeditate(){
-      if(meditating) return
-      meditating = true
-      orb.classList.add("meditate")
-      orbHint.textContent = "静默… 心中默念你的问题"
-      let n = 5
-      orb.textContent = ""
-      orb.append(el('span', { class:'yg-count' }, [String(n)]))
-      timer = setInterval(()=>{
-        n--
-        if(n > 0){
-          orb.textContent = ""
-          orb.append(el('span', { class:'yg-count' }, [String(n)]))
-        }else{
-          clearInterval(timer)
-          meditating = false
-          orb.classList.remove("meditate")
-          drawGua()
-        }
-      }, 1000)
-    }
+  function showDetail(idx){
+    const h = loadHist()
+    const d = h[idx]
+    if(!d) return
+    const g = GUA[d.i]
+    const lv = luckLevel(d.luck)
+    const dt = new Date(d.t)
+    const time = `${dt.getMonth()+1}月${dt.getDate()}日 ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+    const closeBtn = el('button', { class:'gd-close', onclick:()=>{ detail.hidden = true } }, ['×'])
+    detail.innerHTML = ""
+    detail.append(
+      el('div', { class:'gd-head' }, [
+        el('span', { class:'gd-name', html:`${g.n} · <span style="color:${lv.c}">${lv.t}</span>` }),
+        closeBtn
+      ]),
+      el('div', { class:'gd-time' }, [`${time}　评分 ${d.luck}`]),
+      d.q ? el('div', { class:'gd-q', html:`❖ 你问：${escapeHtml(d.q)}` }) : el('div', {}),
+      el('div', { class:'gd-tuan', html:`<b>卦辞</b>　${escapeHtml(g.t)}` }),
+      el('div', { class:'gd-desc' }, [g.d]),
+      el('div', { class:'gd-ai', html:`<b style="color:var(--primary)">AI 解卦</b>　${escapeHtml(d.ai || combineReading(d.q||"", g))}` })
+    )
+    detail.hidden = false
+  }
 
-    function drawGua(){
-      const idx = Math.floor(Math.random()*64)
-      const g = GUA[idx]
-      const lines = linesOf(g.n)
-      const q = wishInput.value.trim()
-      hexBox.innerHTML = hexSVG(lines)
-      nameEl.textContent = g.n
-      subEl.textContent = "第 " + (idx+1) + " 卦 · 《周易》"
-      if(q){ wqEl.textContent = "❖ 你问：" + q; wqEl.classList.remove("empty") }
-      else { wqEl.textContent = ""; wqEl.classList.add("empty") }
-      tuanEl.innerHTML = "<b>卦辞</b>　" + escapeHtml(g.t)
-      descEl.textContent = g.d
-      const lv = luckLevel(g.luck)
-      luckTag.textContent = lv.t
-      luckTag.style.color = lv.c
-      luckTag.style.borderColor = lv.c
-      luckFill.style.width = g.luck + "%"
-      luckFill.style.background = `linear-gradient(90deg,${lv.c},${lv.c})`
-
-      // AI 解读区：先给模板占位，AI 可用则异步替换
-      const useAI = aiEnabled()
-      if(useAI){
-        aiBox.className = "yg-ai loading"
-        aiBox.innerHTML = `<span class="yg-ai-tag">AI 解卦</span><br>✨ 正在结合你的问题解卦…`
-        aiReading(q, g, idx).then((text)=>{
-          aiBox.className = "yg-ai"
-          aiBox.innerHTML = `<span class="yg-ai-tag">AI 解卦（结合你的问题）</span><br>${escapeHtml(text)}`
-          pushHistory(idx, g, q, text)
-        }).catch(()=>{
-          aiBox.className = "yg-ai"
-          aiBox.innerHTML = `<span class="yg-ai-tag">模板解读</span><br>${escapeHtml(combineReading(q, g))}`
-            + `<div class="yg-fallback">⚠️ AI 调用失败（网络/CORS 或额度），已用模板解读。<a href="#/settings" style="color:var(--yg-gold-soft)">去设置检查 AI 配置</a></div>`
-          pushHistory(idx, g, q, "")
-        })
-      }else{
-        aiBox.className = "yg-ai"
-        aiBox.innerHTML = `<span class="yg-ai-tag">模板解读</span><br>${escapeHtml(combineReading(q, g))}`
-          + `<div class="yg-fallback">未配置 AI 密钥，显示通用模板解读。<a href="#/settings" style="color:var(--yg-gold-soft)">去设置配置 AI</a> 后可获个性化解卦。</div>`
-        pushHistory(idx, g, q, "")
-      }
-
-      result.hidden = false
-      result.scrollIntoView({ behavior:"smooth", block:"center" })
-      orb.innerHTML = "☯<br>再要一卦"
-      orbHint.textContent = "可再次点击，重新占问"
-    }
-
-    function pushHistory(idx, g, q, aiText){
-      const h = loadHist()
-      h.push({ i:idx, n:g.n, luck:g.luck, t:Date.now(), q, ai: aiText || "" })
-      saveHist(h)
+  chart.addEventListener("click", (e)=>{
+    const c = e.target.closest("circle[data-idx]")
+    if(c) showDetail(parseInt(c.getAttribute("data-idx"), 10))
+  })
+  clearBtn.addEventListener("click", ()=>{
+    if(confirm("确定清空所有占卦记录？")){
+      localStorage.removeItem(HKEY)
+      detail.hidden = true
       drawChart()
     }
+  })
 
-    orb.addEventListener("click", startMeditate)
+  /* —— 静默 5 秒 —— */
+  function startMeditate(){
+    if(meditating) return
+    meditating = true
+    orb.classList.add("meditate")
+    orbHint.textContent = "静默… 心中默念你的问题"
+    let n = 5
+    orb.textContent = ""
+    orb.append(el('span', { class:'yg-count' }, [String(n)]))
+    timer = setInterval(()=>{
+      n--
+      if(n > 0){
+        orb.textContent = ""
+        orb.append(el('span', { class:'yg-count' }, [String(n)]))
+      }else{
+        clearInterval(timer)
+        meditating = false
+        orb.classList.remove("meditate")
+        drawGua()
+      }
+    }, 1000)
+  }
+  orb.addEventListener("click", startMeditate)
+
+  function drawGua(){
+    const idx = Math.floor(Math.random()*64)
+    const g = GUA[idx]
+    const lines = linesOf(g.n)
+    const q = wishInput.value.trim()
+    hexBox.innerHTML = hexSVG(lines)
+    nameEl.textContent = g.n
+    subEl.textContent = "第 " + (idx+1) + " 卦 · 《周易》"
+    if(q){ wqEl.textContent = "❖ 你问：" + q; wqEl.classList.remove("empty") }
+    else { wqEl.textContent = ""; wqEl.classList.add("empty") }
+    tuanEl.innerHTML = "<b>卦辞</b>　" + escapeHtml(g.t)
+    descEl.textContent = g.d
+    const lv = luckLevel(g.luck)
+    luckTag.textContent = lv.t
+    luckTag.style.color = lv.c
+    luckTag.style.borderColor = lv.c
+    luckFill.style.width = g.luck + "%"
+    luckFill.style.background = `linear-gradient(90deg,${lv.c},${lv.c})`
+
+    const useAI = aiEnabled()
+    if(useAI){
+      aiBox.className = "yg-ai loading"
+      aiBox.innerHTML = `<span class="yg-ai-tag">AI 解卦</span><br>✨ 正在结合你的问题解卦…`
+      aiReading(q, g, idx).then((text)=>{
+        aiBox.className = "yg-ai"
+        aiBox.innerHTML = `<span class="yg-ai-tag">AI 解卦（结合你的问题）</span><br>${escapeHtml(text)}`
+        pushHistory(idx, g, q, text)
+      }).catch(()=>{
+        aiBox.className = "yg-ai"
+        aiBox.innerHTML = `<span class="yg-ai-tag">模板解读</span><br>${escapeHtml(combineReading(q, g))}`
+          + `<div class="yg-fallback">⚠️ AI 调用失败（网络/CORS 或额度），已用模板解读。<a href="#/settings">去设置检查 AI 配置</a></div>`
+        pushHistory(idx, g, q, "")
+      })
+    }else{
+      aiBox.className = "yg-ai"
+      aiBox.innerHTML = `<span class="yg-ai-tag">模板解读</span><br>${escapeHtml(combineReading(q, g))}`
+        + `<div class="yg-fallback">未配置 AI 密钥，显示通用模板解读。<a href="#/settings">去设置配置 AI</a> 后可获个性化解卦。</div>`
+      pushHistory(idx, g, q, "")
+    }
+
+    result.hidden = false
+    orb.innerHTML = "☯<br>再要一卦"
+    orbHint.textContent = "可再次点击，重新占问"
+  }
+
+  function pushHistory(idx, g, q, aiText){
+    const h = loadHist()
+    h.push({ i:idx, n:g.n, luck:g.luck, t:Date.now(), q, ai: aiText || "" })
+    saveHist(h)
     drawChart()
   }
+
+  drawChart()
 }
