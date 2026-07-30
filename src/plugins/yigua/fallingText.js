@@ -11,8 +11,17 @@ export function mountFallingText(container, opts = {}) {
     fontSize = '1.5rem',
     wordSpacing = '6px',
     highlightWords = [],
-    highlightClass = 'yg-ft-hl'
+    highlightClass = 'yg-ft-hl',
+    colors = []
   } = opts
+
+  function colorize(spans) {
+    if (!colors.length) return
+    spans.forEach((e) => {
+      if (e.classList.contains(highlightClass)) return
+      e.style.color = colors[Math.floor(Math.random() * colors.length)]
+    })
+  }
 
   const target = document.createElement('div')
   target.className = 'falling-text-target'
@@ -26,6 +35,7 @@ export function mountFallingText(container, opts = {}) {
 
   let currentWords = [...words]
   let spans = Array.from(target.querySelectorAll('.word'))
+  colorize(spans)
   let engine = null, runner = null, rafId = null, mouse = null, currentPairs = []
 
   function teardown() {
@@ -110,6 +120,7 @@ export function mountFallingText(container, opts = {}) {
       return `<span class="word${hl}">${w}</span>`
     }).join(`<span class="ft-space" style="display:inline-block;width:${wordSpacing}"></span>`)
     spans = Array.from(target.querySelectorAll('.word'))
+    colorize(spans)
     restore()
   }
 
