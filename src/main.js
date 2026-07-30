@@ -7,6 +7,8 @@ import { registerPlugin } from './core/pluginManager.js'
 import { renderSidebar } from './components/sidebar.js'
 import { renderTopbar } from './components/topbar.js'
 import { closeNav } from './components/nav.js'
+import { initCommandPalette, openPalette } from './components/commandPalette.js'
+import { maybeShowFirstRun } from './components/firstRun.js'
 
 import { overviewPlugin } from './plugins/overview/index.js'
 import { pomodoroPlugin } from './plugins/pomodoro/index.js'
@@ -62,3 +64,14 @@ subscribe(rerenderChrome)
 
 // 3) 启动路由
 initRouter(contentEl)
+
+// 4) 命令面板（⌘K / Ctrl+K）+ 首次启动向导
+initCommandPalette({ navigate })
+maybeShowFirstRun()
+
+// 5) PWA：注册 Service Worker（离线 + 可安装）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* 离线能力不可用时静默 */ })
+  })
+}
