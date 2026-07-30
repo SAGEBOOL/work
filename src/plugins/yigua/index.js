@@ -5,6 +5,7 @@
 import { el } from '../../core/ui.js'
 import { getSettings } from '../../core/store.js'
 import { callChat, getProvider } from '../../core/aiGateway.js'
+import { mountFallingText } from './fallingText.js'
 
 /* ===== 六十四卦数据（文王卦序） ===== */
 const GUA = [
@@ -152,25 +153,32 @@ async function aiReading(q, g, idx){
   return await callChat({ messages, temperature: 0.85 })
 }
 
+/* ===== 随机取 k 个卦名（用于卦字互动区） ===== */
+function pickRandomGuaNames(k){
+  const pool = GUA.map(g => g.n)
+  const out = []
+  for(let i=0;i<k;i++) out.push(pool[Math.floor(Math.random()*pool.length)])
+  return out
+}
+
 /* ===== 样式（站点风格，注入一次） ===== */
 function ensureStyle(){
   if(document.getElementById("yg-style")) return
   const css = `
-  .yg-row{display:flex;align-items:center;gap:20px;flex-wrap:nowrap;justify-content:flex-start;margin:6px 0 4px;width:100%;}
-  .yg-orb{
-    width:75px;height:75px;border-radius:50%;flex:0 0 75px;
-    display:flex;align-items:center;justify-content:center;text-align:center;cursor:pointer;user-select:none;
-    background:var(--panel);border:1px solid var(--border);color:var(--primary);font-size:12px;letter-spacing:1px;line-height:1.4;
-    box-shadow:0 0 0 1px rgba(43,108,255,.10),0 0 18px rgba(43,108,255,.16),inset 0 0 22px rgba(43,108,255,.06);
-    animation:yg-breathe 4.2s ease-in-out infinite;transition:transform .2s;padding:8px;
-  }
-  .yg-orb:active{transform:scale(.97);}
-  .yg-orb.meditate{animation:yg-breathe-slow 5s ease-in-out infinite;}
-  .yg-orb .yg-count{font-size:26px;font-weight:700;color:var(--primary);letter-spacing:0;}
-  @keyframes yg-breathe{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(43,108,255,.10),0 0 14px rgba(43,108,255,.10),inset 0 0 20px rgba(43,108,255,.05);}
-    50%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(43,108,255,.22),0 0 34px rgba(43,108,255,.30),inset 0 0 28px rgba(43,108,255,.12);}}
-  @keyframes yg-breathe-slow{0%,100%{transform:scale(1);box-shadow:0 0 0 1px rgba(43,108,255,.14),0 0 18px rgba(43,108,255,.16),inset 0 0 22px rgba(43,108,255,.08);}
-    50%{transform:scale(1.04);box-shadow:0 0 0 1px rgba(43,108,255,.26),0 0 46px rgba(43,108,255,.36),inset 0 0 30px rgba(43,108,255,.16);}}
+  .yg-ft{position:relative;height:124px;overflow:hidden;border:1px dashed var(--border);border-radius:14px;
+    background:var(--panel-2);cursor:pointer;display:flex;align-items:center;justify-content:center;margin:4px 0 2px;
+    transition:border-color .2s,box-shadow .2s;}
+  .yg-ft:hover{border-color:var(--primary);box-shadow:0 0 0 3px rgba(43,108,255,.10);}
+  .yg-ft .falling-text-target{display:inline-block;text-align:center;padding:0 10px;user-select:none;}
+  .yg-ft .word{display:inline-block;color:var(--primary);font-family:"Songti SC","STSong",serif;font-weight:600;
+    letter-spacing:1px;white-space:nowrap;cursor:grab;font-size:1.5rem;}
+  .yg-ft .word:active{cursor:grabbing;}
+  .yg-ft .word.yg-ft-hl{color:var(--ok);}
+  .yg-ft .ft-space{display:inline-block;}
+  .yg-ft-hint{position:absolute;bottom:6px;left:0;right:0;text-align:center;color:var(--text-3);font-size:11px;pointer-events:none;letter-spacing:.5px;}
+  .yg-ft-count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:700;
+    color:var(--primary);background:rgba(127,127,127,.10);border-radius:14px;z-index:5;}
+  .yg-ft-count[hidden]{display:none;}
   .yg-wish{flex:1 1 auto;min-width:220px;display:flex;flex-direction:column;}
   .yg-wish label{display:block;font-size:13px;color:var(--text-2);margin-bottom:8px;letter-spacing:.5px;}
   .yg-wish-input{width:100%;padding:10px 12px;border-radius:10px;background:var(--panel-2);
@@ -220,8 +228,8 @@ function ensureStyle(){
   .yg-clear:hover{background:rgba(255,107,107,.12);}
   .yg-foot{color:var(--text-3);font-size:11px;margin-top:18px;text-align:center;letter-spacing:1px;line-height:1.7;}
   @media (max-width:600px){
-    .yg-row{gap:14px;flex-wrap:wrap;justify-content:center;}
-    .yg-orb{width:64px;height:64px;flex:0 0 64px;}
+    .yg-ft{height:110px;}
+    .yg-ft .word{font-size:1.25rem;}
     .yg-wish{width:100%;max-width:340px;}
   }`
   const style = document.createElement("style")
@@ -235,10 +243,15 @@ export function renderYiguaWidget(root){
   ensureStyle()
   let meditating = false, timer = null
 
-  const orb = el('div', { class:'yg-orb', html:'☯<br>点击要一卦' })
-  const orbHint = el('p', { class:'yg-hint' }, ['静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。'])
+  // —— 卦字互动区（随机卦名 + 物理下落，点击摇卦）——
+  const ftBox = el('div', { class:'yg-ft' })
+  const ftHint = el('div', { class:'yg-ft-hint' }, ['点击此处摇卦 · 可拖拽卦字'])
+  const ftCount = el('div', { class:'yg-ft-count', hidden:true })
+  ftBox.append(ftHint, ftCount)
+
   const wishInput = el('textarea', { class:'yg-wish-input', rows:'2', maxlength:'40',
     placeholder:'写下你心中所问之事（可选，最多 40 字）' })
+  const hintEl = el('p', { class:'yg-hint' }, ['静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。'])
 
   const hexBox = el('div', { class:'yg-hex' })
   const nameEl = el('div', { class:'yg-name' })
@@ -255,7 +268,7 @@ export function renderYiguaWidget(root){
   ])
 
   const chart = el('div', { id:'ygChart' })
-  const chartEmpty = el('div', { class:'yg-chart-empty' }, ['尚无记录，点击上方圆占第一卦'])
+  const chartEmpty = el('div', { class:'yg-chart-empty' }, ['尚无记录，点击上方卦字区域占第一卦'])
   const detail = el('div', { class:'yg-detail', hidden:true })
   const clearBtn = el('button', { class:'yg-clear' }, ['清空记录'])
 
@@ -268,19 +281,25 @@ export function renderYiguaWidget(root){
   ])
 
   const page = el('div', {}, [
-    el('div', { class:'yg-row' }, [
-      orb,
-      el('div', { class:'yg-wish' }, [
-        el('label', {}, ['🙏 写下心愿，心念其事5秒，开始要挂']),
-        wishInput
-      ])
+    ftBox,
+    hintEl,
+    el('div', { class:'yg-wish' }, [
+      el('label', {}, ['🙏 写下心愿，心念其事5秒，开始要挂']),
+      wishInput
     ]),
-    orbHint,
     result,
     chartCard,
     el('div', { class:'yg-foot' }, ['卦辞据《周易》文王卦序整理；解读结合 AI 与白话参考，仅供娱乐与内省，重大决策请理性判断。'])
   ])
   root.append(page)
+
+  /* —— 卦字互动区挂载 + 点击摇卦 —— */
+  const falling = mountFallingText(ftBox, {
+    words: pickRandomGuaNames(9),
+    gravity: 0.9, fontSize: '1.5rem', wordSpacing: '8px',
+    highlightWords: [], highlightClass: 'yg-ft-hl'
+  })
+  ftBox.addEventListener('click', startMeditate)
 
   /* —— 走势图渲染 —— */
   function drawChart(){
@@ -360,25 +379,24 @@ export function renderYiguaWidget(root){
   function startMeditate(){
     if(meditating) return
     meditating = true
-    orb.classList.add("meditate")
-    orbHint.textContent = "静默… 心中默念你的问题"
+    falling.start()                 // 重新散开卦字
+    hintEl.textContent = "静默… 心中默念你的问题"
+    ftCount.hidden = false
     let n = 5
-    orb.textContent = ""
-    orb.append(el('span', { class:'yg-count' }, [String(n)]))
+    ftCount.textContent = String(n)
     timer = setInterval(()=>{
       n--
       if(n > 0){
-        orb.textContent = ""
-        orb.append(el('span', { class:'yg-count' }, [String(n)]))
+        ftCount.textContent = String(n)
       }else{
         clearInterval(timer)
         meditating = false
-        orb.classList.remove("meditate")
+        ftCount.hidden = true
+        hintEl.textContent = "可再次点击卦字区，重新占问"
         drawGua()
       }
     }, 1000)
   }
-  orb.addEventListener("click", startMeditate)
 
   function drawGua(){
     const idx = Math.floor(Math.random()*64)
@@ -421,8 +439,7 @@ export function renderYiguaWidget(root){
     }
 
     result.hidden = false
-    orb.innerHTML = "☯<br>再要一卦"
-    orbHint.textContent = "可再次点击，重新占问"
+    hintEl.textContent = "可再次点击卦字区，重新占问"
   }
 
   function pushHistory(idx, g, q, aiText){
