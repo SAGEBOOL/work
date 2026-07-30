@@ -256,7 +256,7 @@ export const yiguaPlugin = {
 
     let meditating = false, timer = null
 
-    const orb = el('div', { class:'yg-orb' }, ['☯\n点击要一卦'])
+    const orb = el('div', { class:'yg-orb', html:'☯<br>点击要一卦' })
     const orbText = orb // 直接改文本
     const orbHint = el('p', { class:'yg-hint' }, ['写下心愿，点击左侧圆，静默 5 秒'])
     const wishInput = el('textarea', { class:'yg-wish-input', rows:'2', maxlength:'40',
@@ -447,8 +447,7 @@ export const yiguaPlugin = {
 
       result.hidden = false
       result.scrollIntoView({ behavior:"smooth", block:"center" })
-      orb.textContent = ""
-      orb.append("☯\n再要一卦")
+      orb.innerHTML = "☯<br>再要一卦"
       orbHint.textContent = "可再次点击，重新占问"
     }
 
