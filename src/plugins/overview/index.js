@@ -5,6 +5,7 @@ import { configuredProviders, getProvider } from '../../core/aiGateway.js'
 import { allPlugins } from '../../core/pluginManager.js'
 import { getRecent, getFavorites } from '../../core/store.js'
 import { navigate } from '../../core/router.js'
+import { renderYiguaWidget } from '../yigua/index.js'
 
 const WMO = {
   0: '晴', 1: '大致晴朗', 2: '局部多云', 3: '阴', 45: '雾', 48: '雾凇',
@@ -94,6 +95,13 @@ export const overviewPlugin = {
     page.append(el('div', { class: 'card', style: 'margin-top:16px' }, [
       el('h3', {}, ['🧰 全部功能']), quick
     ]))
+
+    // ---------- 每天要一卦（嵌入全部功能下方） ----------
+    const yiguaCard = el('div', { class: 'card', style: 'margin-top:16px' }, [
+      el('h3', {}, ['☯ 每天要一卦']),
+    ])
+    renderYiguaWidget(yiguaCard)
+    page.append(yiguaCard)
 
     root.append(page)
 
