@@ -79,3 +79,41 @@ export function logHistory(action, detail) {
 export function getHistory() {
   try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
 }
+
+// ---------- 最近使用（用于侧边栏「常用」与概览「最近」） ----------
+const RECENT_KEY = 'opwb:recent:v1'
+const RECENT_MAX = 12
+export function logRecent(id) {
+  try {
+    const arr = getRecent().filter((x) => x !== id)
+    arr.unshift(id)
+    while (arr.length > RECENT_MAX) arr.pop()
+    localStorage.setItem(RECENT_KEY, JSON.stringify(arr))
+  } catch { /* 忽略 */ }
+}
+export function getRecent() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') } catch { return [] }
+}
+
+// ---------- 收藏（置顶常用） ----------
+const FAV_KEY = 'opwb:fav:v1'
+export function getFavorites() {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || '[]') } catch { return [] }
+}
+export function toggleFavorite(id) {
+  const arr = getFavorites()
+  const i = arr.indexOf(id)
+  if (i >= 0) arr.splice(i, 1)
+  else arr.push(id)
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(arr)) } catch { /* 忽略 */ }
+  return arr
+}
+
+// ---------- 首次启动引导标记 ----------
+const ONBOARD_KEY = 'opwb:onboarded:v1'
+export function isOnboarded() {
+  try { return localStorage.getItem(ONBOARD_KEY) === '1' } catch { return false }
+}
+export function setOnboarded() {
+  try { localStorage.setItem(ONBOARD_KEY, '1') } catch { /* 忽略 */ }
+}
