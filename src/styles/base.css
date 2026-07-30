@@ -549,7 +549,8 @@ body.nav-open { overflow: hidden; }
 }
 .line-sidebar__item:hover .fav-btn { opacity: .8; }
 .fav-btn.on { opacity: 1; color: #f5b400; }
-.fav-group-label { color: var(--primary); font-weight: 600; }
+.fav-group-label { color: var(--primary); font-weight: 600; display: flex; align-items: baseline; justify-content: space-between; }
+.fav-empty-hint { font-weight: 400; font-size: 11px; color: var(--text-3); }
 
 /* ================= 今日工作台 ================= */
 .greet { font-size: 22px; font-weight: 700; margin: 0 0 2px; }
