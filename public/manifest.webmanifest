@@ -1,0 +1,19 @@
+{
+  "name": "一人公司工作中台",
+  "short_name": "工作台上台",
+  "description": "纯本机的一人公司多功能工作台：办公工具 + 专业资料/客户/经营分析 + 休闲。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#2b6cff",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
