@@ -176,6 +176,11 @@ function ensureStyle(){
   .yg-ft .word.yg-ft-hl{color:var(--ok);}
   .yg-ft .ft-space{display:inline-block;}
   .yg-ft-hint{position:absolute;bottom:6px;left:0;right:0;text-align:center;color:var(--text-3);font-size:11px;pointer-events:none;letter-spacing:.5px;}
+  .yg-reset-row{display:flex;justify-content:flex-end;margin:-2px 0 8px;}
+  .yg-reset-btn{background:transparent;border:1px solid var(--border);color:var(--text-2);font-size:12px;
+    padding:5px 12px;border-radius:8px;cursor:pointer;letter-spacing:.5px;transition:border-color .2s,color .2s;}
+  .yg-reset-btn:hover{border-color:var(--primary);color:var(--primary);}
+  .yg-reset-btn:disabled{opacity:.5;cursor:not-allowed;}
   .yg-ft-count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:56px;font-weight:700;
     color:var(--primary);background:rgba(127,127,127,.10);border-radius:14px;z-index:5;}
   .yg-ft-count[hidden]{display:none;}
@@ -280,8 +285,11 @@ export function renderYiguaWidget(root){
     el('div', { style:'text-align:right' }, [clearBtn])
   ])
 
+  const resetBtn = el('button', { class:'yg-reset-btn', title:'换一组卦字，恢复可点击' }, ['🔄 再要一卦'])
+
   const page = el('div', {}, [
     ftBox,
+    el('div', { class:'yg-reset-row' }, [resetBtn]),
     hintEl,
     el('div', { class:'yg-wish' }, [
       el('label', {}, ['🙏 写下心愿，心念其事5秒，开始要挂']),
@@ -375,6 +383,18 @@ export function renderYiguaWidget(root){
     }
   })
 
+  function cancelMeditate(){
+    if(timer){ clearInterval(timer); timer = null }
+    meditating = false
+    ftCount.hidden = true
+  }
+
+  function resetFalling(){
+    cancelMeditate()
+    falling.reset(pickRandomGuaNames(9))
+    hintEl.textContent = "静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。"
+  }
+
   /* —— 静默 5 秒 —— */
   function startMeditate(){
     if(meditating) return
@@ -390,13 +410,16 @@ export function renderYiguaWidget(root){
         ftCount.textContent = String(n)
       }else{
         clearInterval(timer)
+        timer = null
         meditating = false
         ftCount.hidden = true
-        hintEl.textContent = "可再次点击卦字区，重新占问"
+        hintEl.textContent = "可再次点击卦字区，或点「再要一卦」重新占问"
         drawGua()
       }
     }, 1000)
   }
+
+  resetBtn.addEventListener('click', resetFalling)
 
   function drawGua(){
     const idx = Math.floor(Math.random()*64)
