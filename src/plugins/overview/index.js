@@ -41,19 +41,20 @@ export const overviewPlugin = {
       ]))
     }
 
-    // ---------- 今日网格：左=最近/收藏，右=天气+今日备注 ----------
+    // ---------- 今日网格：左=快速继续，右=天气+今日备注 ----------
     const left = el('div', { class: 'card' }, [el('h3', {}, ['🚀 快速继续'])])
-    const recentIds = [...new Set([...getFavorites(), ...getRecent()])].filter((id) => id !== 'overview')
-    if (recentIds.length) {
+    const QUICK_IDS = ['pomodoro', 'gomoku', 'settings']
+    const quickPlugins = allPlugins().filter((p) => QUICK_IDS.includes(p.id))
+    if (quickPlugins.length) {
       const row = el('div', { class: 'recent-row' })
-      allPlugins().filter((p) => recentIds.includes(p.id)).forEach((p) => {
+      quickPlugins.forEach((p) => {
         row.append(el('a', { class: 'recent-chip', href: '#/' + p.id, onclick: () => navigate(p.id) }, [
           el('span', {}, [p.icon || '•']), p.name
         ]))
       })
       left.append(row)
     } else {
-      left.append(el('p', { class: 'muted' }, ['打开过的功能会出现在这里。']))
+      left.append(el('p', { class: 'muted' }, ['暂无快捷入口。']))
     }
 
     const right = el('div', { class: 'card' }, [el('h3', {}, ['🌤️ 北京天气']), el('div', { class: 'today-weather', id: 'ov-wx' }, ['加载中…'])])
