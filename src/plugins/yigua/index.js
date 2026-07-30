@@ -171,7 +171,7 @@ function ensureStyle(){
   .yg-ft:hover{border-color:var(--primary);box-shadow:0 0 0 3px rgba(43,108,255,.10);}
   .yg-ft .falling-text-target{display:inline-block;text-align:center;padding:0 10px;user-select:none;}
   .yg-ft .word{display:inline-block;color:var(--primary);font-family:"Songti SC","STSong",serif;font-weight:600;
-    letter-spacing:1px;white-space:nowrap;cursor:grab;font-size:0.75rem;}
+    letter-spacing:1px;white-space:nowrap;cursor:grab;font-size:1.5rem;}
   .yg-ft .word:active{cursor:grabbing;}
   .yg-ft .word.yg-ft-hl{color:var(--ok);}
   .yg-ft .ft-space{display:inline-block;}
@@ -234,7 +234,7 @@ function ensureStyle(){
   .yg-foot{color:var(--text-3);font-size:11px;margin-top:18px;text-align:center;letter-spacing:1px;line-height:1.7;}
   @media (max-width:600px){
     .yg-ft{height:330px;}
-    .yg-ft .word{font-size:0.65rem;}
+    .yg-ft .word{font-size:1.3rem;}
     .yg-wish{width:100%;max-width:340px;}
   }`
   const style = document.createElement("style")
@@ -306,7 +306,7 @@ export function renderYiguaWidget(root){
   /* —— 卦字互动区挂载 + 点击摇卦 —— */
   const falling = mountFallingText(ftBox, {
     words: pickRandomGuaNames(9),
-    gravity: 0.9, fontSize: '0.75rem', wordSpacing: '10px',
+    gravity: 0.9, fontSize: '1.5rem', wordSpacing: '10px',
     highlightWords: [], highlightClass: 'yg-ft-hl',
     colors: FT_COLORS
   })
