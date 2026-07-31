@@ -392,11 +392,11 @@ export function renderYiguaWidget(root){
     ftCount.hidden = true
   }
 
-  function askAgain(){
+  function resetToNeat(){
     cancelMeditate()
-    falling.reset(pickRandomGuaNames(9))
-    hintEl.textContent = "静默5秒，心念其事；卦成后 AI 会结合你的问题解卦。"
-    startMeditate()
+    falling.reset(pickRandomGuaNames(9))   // 停止物理、重建卦字并恢复整齐居中静态排列
+    hintEl.textContent = "卦字已归位。点击上方卦字区，静默5秒，开始要挂。"
+    result.hidden = true                    // 清掉上一次结果，回到可重新占问的状态
   }
 
   /* —— 静默 5 秒 —— */
@@ -423,7 +423,7 @@ export function renderYiguaWidget(root){
     }, 1000)
   }
 
-  resetBtn.addEventListener('click', askAgain)
+  resetBtn.addEventListener('click', resetToNeat)
 
   function drawGua(){
     const idx = Math.floor(Math.random()*64)
