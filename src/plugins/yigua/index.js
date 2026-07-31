@@ -216,7 +216,10 @@ function ensureStyle(){
   .yg-chart-head{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;}
   .yg-chart-head h3{margin:0;font-size:15px;letter-spacing:1px;color:var(--text);font-weight:600;}
   .yg-chart-head .sub{color:var(--text-3);font-size:12px;}
-  #ygChart{width:100%;height:200px;display:block;overflow:hidden;border-radius:8px;background:var(--panel-2);margin-top:6px;}
+  #ygChart{position:relative;width:100%;height:200px;display:block;overflow:hidden;border-radius:8px;background:var(--panel-2);margin-top:6px;}
+  .yg-y-axis{position:absolute;left:0;top:0;bottom:0;width:26px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;padding:4px 6px 4px 0;pointer-events:none;z-index:2;}
+  .yg-y-axis span{color:var(--text-3);font-size:9px;line-height:1;}
+  .yg-chart-svg{position:absolute;inset:0;left:26px;width:calc(100% - 26px);height:100%;display:block;}
   .yg-chart-empty{color:var(--text-3);font-size:13px;text-align:center;padding:24px 0;}
   .yg-detail{margin-top:12px;padding:14px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--border);}
   .yg-detail[hidden]{display:none;}
@@ -317,32 +320,39 @@ export function renderYiguaWidget(root){
     const h = loadHist()
     if(h.length === 0){ chart.innerHTML = ""; chartEmpty.style.display = "block"; return }
     chartEmpty.style.display = "none"
-    const W=420, H=200, padL=34, padR=12, padT=16, padB=26
-    const xs = W-padL-padR, ys = H-padT-padB
+    const W=420, H=200, padT=10, padB=22, padX=6
+    const xs = W - padX*2, ys = H-padT-padB
     const n = h.length
-    const px = (i)=> n===1 ? padL+xs/2 : padL + xs*i/(n-1)
+    const px = (i)=> n===1 ? W/2 : padX + xs*i/(n-1)
     const py = (v)=> padT + ys*(1 - v/100)
+
+    let yAxisHTML = `<div class="yg-y-axis">` + [100,75,50,25,0].map(g => `<span>${g}</span>`).join('') + `</div>`
+
     let grid = ""
     ;[0,25,50,75,100].forEach(g=>{
       const y = py(g)
-      grid += `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
-      grid += `<text x="${padL-6}" y="${y+4}" style="fill:var(--text-3)" font-size="9" text-anchor="end">${g}</text>`
+      grid += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
     })
+
     let area = `M ${px(0)} ${py(h[0].luck)} `
     h.forEach((d,i)=> area += `L ${px(i)} ${py(d.luck)} `)
     area += `L ${px(n-1)} ${padT+ys} L ${px(0)} ${padT+ys} Z`
+
     let line = "", dots = ""
     h.forEach((d,i)=>{
       const x = px(i), y = py(d.luck)
       line += (i===0 ? `M ${x} ${y} ` : `L ${x} ${y} `)
       const lv = luckLevel(d.luck)
-      dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="5" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
-      if(n <= 12) dots += `<text x="${x}" y="${y-9}" style="fill:var(--primary)" font-size="9" text-anchor="middle">${d.luck}</text>`
+      dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="4" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
+      if(n <= 16) dots += `<text x="${x}" y="${y-8}" style="fill:var(--primary)" font-size="8" text-anchor="middle">${d.luck}</text>`
     })
+
     let xlab = ""
-    const labels = n <= 8 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
-    labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-8}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
-    chart.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:100%;display:block">`
+    const labels = n <= 10 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
+    labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-6}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
+
+    chart.innerHTML = yAxisHTML
+      + `<svg class="yg-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`
       + grid
       + `<path d="${area}" fill="rgba(43,108,255,.12)"/>`
       + `<path d="${line}" fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round"/>`
