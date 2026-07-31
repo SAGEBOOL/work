@@ -315,49 +315,82 @@ export function renderYiguaWidget(root){
   })
   ftBox.addEventListener('click', startMeditate)
 
-  /* —— 走势图渲染 —— */
+  /* —— 走势图渲染（等比缩放 + 平滑曲线） —— */
+  function geom(){
+    const cw = chart.clientWidth || 360
+    const ch = chart.clientHeight || 200
+    const W = Math.max(60, cw - 26)   // 减去左侧 y 轴占位
+    const H = Math.max(60, ch)
+    const padT = 12, padB = 22, padX = 8
+    return { W, H, padT, padB, padX, xs: W - padX*2, ys: H - padT - padB }
+  }
+  // Catmull-Rom → 三次贝塞尔，得到穿过所有数据点的平滑曲线
+  function smoothLine(pts){
+    if(pts.length === 0) return ""
+    if(pts.length === 1) return `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`
+    let d = `M ${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `
+    for(let i=0;i<pts.length-1;i++){
+      const p0 = pts[i-1] || pts[i]
+      const p1 = pts[i]
+      const p2 = pts[i+1]
+      const p3 = pts[i+2] || p2
+      const cp1x = p1.x + (p2.x - p0.x)/6
+      const cp1y = p1.y + (p2.y - p0.y)/6
+      const cp2x = p2.x - (p3.x - p1.x)/6
+      const cp2y = p2.y - (p3.y - p1.y)/6
+      d += `C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)} ${cp2x.toFixed(1)} ${cp2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)} `
+    }
+    return d
+  }
   function drawChart(){
     const h = loadHist()
     if(h.length === 0){ chart.innerHTML = ""; chartEmpty.style.display = "block"; return }
     chartEmpty.style.display = "none"
-    const W=420, H=200, padT=10, padB=22, padX=6
-    const xs = W - padX*2, ys = H-padT-padB
+    const { W, H, padT, padB, padX, xs, ys } = geom()
     const n = h.length
     const px = (i)=> n===1 ? W/2 : padX + xs*i/(n-1)
     const py = (v)=> padT + ys*(1 - v/100)
+    const pts = h.map((d,i)=>({ x: px(i), y: py(d.luck) }))
+    const bottom = (padT + ys).toFixed(1)
 
     let yAxisHTML = `<div class="yg-y-axis">` + [100,75,50,25,0].map(g => `<span>${g}</span>`).join('') + `</div>`
 
     let grid = ""
     ;[0,25,50,75,100].forEach(g=>{
       const y = py(g)
-      grid += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" style="stroke:var(--border)" stroke-width="1"/>`
+      grid += `<line x1="0" y1="${y.toFixed(1)}" x2="${W}" y2="${y.toFixed(1)}" style="stroke:var(--border)" stroke-width="1"/>`
     })
 
-    let area = `M ${px(0)} ${py(h[0].luck)} `
-    h.forEach((d,i)=> area += `L ${px(i)} ${py(d.luck)} `)
-    area += `L ${px(n-1)} ${padT+ys} L ${px(0)} ${padT+ys} Z`
+    const linePath = smoothLine(pts)
+    const areaPath = linePath
+      + ` L ${pts[n-1].x.toFixed(1)} ${bottom}`
+      + ` L ${pts[0].x.toFixed(1)} ${bottom} Z`
 
-    let line = "", dots = ""
+    let dots = ""
     h.forEach((d,i)=>{
-      const x = px(i), y = py(d.luck)
-      line += (i===0 ? `M ${x} ${y} ` : `L ${x} ${y} `)
+      const x = pts[i].x.toFixed(1), y = pts[i].y.toFixed(1)
       const lv = luckLevel(d.luck)
       dots += `<circle data-idx="${i}" cx="${x}" cy="${y}" r="4" fill="${lv.c}" style="stroke:var(--panel);cursor:pointer" stroke-width="1.5"/>`
-      if(n <= 16) dots += `<text x="${x}" y="${y-8}" style="fill:var(--primary)" font-size="8" text-anchor="middle">${d.luck}</text>`
+      if(n <= 16) dots += `<text x="${x}" y="${(pts[i].y-9).toFixed(1)}" style="fill:var(--primary)" font-size="9" text-anchor="middle">${d.luck}</text>`
     })
 
     let xlab = ""
     const labels = n <= 10 ? h.map((_,i)=>i) : [0, Math.floor(n/2), n-1]
-    labels.forEach(i=>{ xlab += `<text x="${px(i)}" y="${H-6}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
+    labels.forEach(i=>{ xlab += `<text x="${pts[i].x.toFixed(1)}" y="${(H-6).toFixed(1)}" style="fill:var(--text-3)" font-size="9" text-anchor="middle">#${i+1}</text>` })
 
+    // viewBox 用容器实际像素 → 与 SVG 元素同比例，默认 meet 即 1:1 等比填满、圆点正圆
     chart.innerHTML = yAxisHTML
-      + `<svg class="yg-chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`
+      + `<svg class="yg-chart-svg" viewBox="0 0 ${W} ${H}">`
       + grid
-      + `<path d="${area}" fill="rgba(43,108,255,.12)"/>`
-      + `<path d="${line}" fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round"/>`
+      + `<path d="${areaPath}" fill="rgba(43,108,255,.12)"/>`
+      + `<path d="${linePath}" fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
       + dots + xlab
       + `</svg>`
+
+    if(!chart._ro && typeof ResizeObserver !== 'undefined'){
+      chart._ro = new ResizeObserver(()=> drawChart())
+      chart._ro.observe(chart)
+    }
   }
 
   function showDetail(idx){
