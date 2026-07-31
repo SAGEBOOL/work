@@ -403,7 +403,8 @@ export function renderYiguaWidget(root){
   function startMeditate(){
     if(meditating) return
     meditating = true
-    falling.start()                 // 重新散开卦字
+    try { falling.start() }         // 重新散开卦字；异常也不阻断后续出卦
+    catch(err){ console.error('[yigua] falling.start 失败:', err) }
     hintEl.textContent = "静默… 心中默念你的问题"
     ftCount.hidden = false
     let n = 5
