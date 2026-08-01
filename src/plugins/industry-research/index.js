@@ -10,43 +10,61 @@ import { searchIMA } from '../../core/ima.js'
 const KEY = 'opwb:ir:v1'
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
 
+// 官方信息类型：选行业后，按此分类检索与整理官方信息
+const INFO_TYPES = ['官方资讯', '官方规范制度', '官方公开数据']
+const INFO_TYPE_ICONS = { '官方资讯': '📰', '官方规范制度': '📋', '官方公开数据': '📊' }
+// 每类信息的检索关键词（用于「一键查询」组合搜索引擎）
+const INFO_TYPE_QUERIES = {
+  '官方资讯': '通知 公告 新闻 动态 官方发布',
+  '官方规范制度': '办法 条例 规定 标准 规范 政策 文件',
+  '官方公开数据': '统计 公报 数据 年鉴 指标'
+}
+// 每个行业的主要官方门户域名（资讯/规范制度类查询用 site: 限定官方站内）
+const INDUSTRY_PORTALS = {
+  '建筑规划': 'mohurd.gov.cn',
+  '非遗传创': 'mct.gov.cn',
+  '研学': 'moe.gov.cn',
+  '自媒体': 'cnnic.net.cn',
+  '通用': 'gov.cn'
+}
+
 // 通用官方/专业数据源（任意行业都可叠加）
 const GENERAL_SOURCES = [
-  { name: '国家统计局', url: 'http://www.stats.gov.cn', category: '政府与统计', freq: '月/季/年', credibility: '高', note: '综合宏观数据' },
-  { name: '国家数据（统计局数据库）', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '不定期', credibility: '高', note: '可检索下载指标' },
-  { name: '中国人民银行', url: 'http://www.pbc.gov.cn', category: '金融', freq: '日/月', credibility: '高', note: '货币、信贷' },
-  { name: '工业和信息化部', url: 'https://www.miit.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '产业运行' },
-  { name: '中国证监会', url: 'http://www.csrc.gov.cn', category: '金融/监管', freq: '日', credibility: '高', note: '上市公司' },
-  { name: '巨潮资讯（上市公司财报）', url: 'http://www.cninfo.com.cn', category: '上市公司', freq: '日', credibility: '高', note: '财报/公告' },
-  { name: '中国海关', url: 'https://www.customs.gov.cn', category: '贸易', freq: '月', credibility: '高', note: '进出口' },
-  { name: '国家知识产权局（专利）', url: 'https://www.cnipa.gov.cn', category: '知识产权', freq: '月', credibility: '高', note: '专利数据' }
+  { name: '国家统计局', url: 'http://www.stats.gov.cn', category: '政府与统计', freq: '月/季/年', credibility: '高', note: '综合宏观数据', infoType: '官方公开数据' },
+  { name: '国家数据（统计局数据库）', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '不定期', credibility: '高', note: '可检索下载指标', infoType: '官方公开数据' },
+  { name: '中国人民银行', url: 'http://www.pbc.gov.cn', category: '金融', freq: '日/月', credibility: '高', note: '货币、信贷', infoType: '官方公开数据' },
+  { name: '工业和信息化部', url: 'https://www.miit.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '产业运行', infoType: '官方规范制度' },
+  { name: '中国证监会', url: 'http://www.csrc.gov.cn', category: '金融/监管', freq: '日', credibility: '高', note: '上市公司', infoType: '官方规范制度' },
+  { name: '巨潮资讯（上市公司财报）', url: 'http://www.cninfo.com.cn', category: '上市公司', freq: '日', credibility: '高', note: '财报/公告', infoType: '官方公开数据' },
+  { name: '中国海关', url: 'https://www.customs.gov.cn', category: '贸易', freq: '月', credibility: '高', note: '进出口', infoType: '官方公开数据' },
+  { name: '国家知识产权局（专利）', url: 'https://www.cnipa.gov.cn', category: '知识产权', freq: '月', credibility: '高', note: '专利数据', infoType: '官方公开数据' }
 ]
 
 // 分行业的官方/专业数据源（选行业后一键载入）
 const INDUSTRY_SOURCES = {
   '建筑规划': [
-    { name: '国家统计局·固定资产投资/房地产', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '月/年', credibility: '高', note: '房地产开发投资、建筑业总产值、新开工面积' },
-    { name: '住房和城乡建设部', url: 'https://www.mohurd.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '城市更新、绿色建筑政策' },
-    { name: '中国建筑业协会', url: 'http://www.zgjzy.org', category: '行业协会', freq: '年', credibility: '中', note: '行业产值、企业排名' },
-    { name: '自然资源部', url: 'https://www.mnr.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '土地出让、用地审批' }
+    { name: '国家统计局·固定资产投资/房地产', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '月/年', credibility: '高', note: '房地产开发投资、建筑业总产值、新开工面积', infoType: '官方公开数据' },
+    { name: '住房和城乡建设部', url: 'https://www.mohurd.gov.cn', category: '政府与监管', freq: '不定期', credibility: '高', note: '城市更新、绿色建筑政策', infoType: '官方规范制度' },
+    { name: '中国建筑业协会', url: 'http://www.zgjzy.org', category: '行业协会', freq: '年', credibility: '中', note: '行业产值、企业排名', infoType: '官方资讯' },
+    { name: '自然资源部', url: 'https://www.mnr.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '土地出让、用地审批', infoType: '官方公开数据' }
   ],
   '非遗传创': [
-    { name: '文化和旅游部·非物质文化遗产司', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '国家级非遗名录、传承人' },
-    { name: '中国非物质文化遗产网', url: 'http://www.ihchina.cn', category: '专业平台', freq: '不定期', credibility: '高', note: '非遗项目数据库' },
-    { name: '国家统计局·文化及相关产业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '文化产业增加值' },
-    { name: '中国文化产业协会', url: 'http://www.ccia.org.cn', category: '行业协会', freq: '年', credibility: '中', note: '文创市场规模' }
+    { name: '文化和旅游部·非物质文化遗产司', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '国家级非遗名录、传承人', infoType: '官方规范制度' },
+    { name: '中国非物质文化遗产网', url: 'http://www.ihchina.cn', category: '专业平台', freq: '不定期', credibility: '高', note: '非遗项目数据库', infoType: '官方公开数据' },
+    { name: '国家统计局·文化及相关产业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '文化产业增加值', infoType: '官方公开数据' },
+    { name: '中国文化产业协会', url: 'http://www.ccia.org.cn', category: '行业协会', freq: '年', credibility: '中', note: '文创市场规模', infoType: '官方资讯' }
   ],
   '研学': [
-    { name: '教育部', url: 'http://www.moe.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '中小学在校生、研学政策' },
-    { name: '文化和旅游部', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '文旅接待、研学旅行' },
-    { name: '中国旅游研究院', url: 'http://www.ctaweb.org', category: '研究机构', freq: '季', credibility: '中', note: '旅游/研学市场规模' },
-    { name: '国家统计局·教育/旅游', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '教育、旅游数据' }
+    { name: '教育部', url: 'http://www.moe.gov.cn', category: '政府与监管', freq: '年', credibility: '高', note: '中小学在校生、研学政策', infoType: '官方规范制度' },
+    { name: '文化和旅游部', url: 'https://www.mct.gov.cn', category: '政府与监管', freq: '季', credibility: '高', note: '文旅接待、研学旅行', infoType: '官方资讯' },
+    { name: '中国旅游研究院', url: 'http://www.ctaweb.org', category: '研究机构', freq: '季', credibility: '中', note: '旅游/研学市场规模', infoType: '官方公开数据' },
+    { name: '国家统计局·教育/旅游', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '教育、旅游数据', infoType: '官方公开数据' }
   ],
   '自媒体': [
-    { name: 'CNNIC·中国互联网络发展状况统计', url: 'https://www.cnnic.net.cn', category: '研究机构', freq: '半年', credibility: '高', note: '网民规模、短视频用户' },
-    { name: 'QuestMobile', url: 'https://www.questmobile.com.cn', category: '数据机构', freq: '季', credibility: '中', note: '移动互联网活跃、创作者' },
-    { name: '中国广告协会', url: 'http://www.china-caa.org', category: '行业协会', freq: '年', credibility: '中', note: '广告市场规模' },
-    { name: '国家统计局·信息服务业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '信息服务、数字经济' }
+    { name: 'CNNIC·中国互联网络发展状况统计', url: 'https://www.cnnic.net.cn', category: '研究机构', freq: '半年', credibility: '高', note: '网民规模、短视频用户', infoType: '官方公开数据' },
+    { name: 'QuestMobile', url: 'https://www.questmobile.com.cn', category: '数据机构', freq: '季', credibility: '中', note: '移动互联网活跃、创作者', infoType: '官方公开数据' },
+    { name: '中国广告协会', url: 'http://www.china-caa.org', category: '行业协会', freq: '年', credibility: '中', note: '广告市场规模', infoType: '官方资讯' },
+    { name: '国家统计局·信息服务业', url: 'https://data.stats.gov.cn', category: '政府与统计', freq: '年', credibility: '高', note: '信息服务、数字经济', infoType: '官方公开数据' }
   ]
 }
 
@@ -163,7 +181,7 @@ export const industryResearchPlugin = {
       indSel.onchange = () => { wiz.industry = indSel.value }
       stepBody.append(el('div', { class: 'card' }, [
         el('h3', {}, ['① 选择研究行业']),
-        el('p', { class: 'hint' }, ['选择你正在研究的行业，后续「数据源目录」「指标建议」会按此行业自动匹配。也可在「设置」中维护常用行业。']),
+        el('p', { class: 'hint' }, ['选择行业后，可在②对【官方资讯 / 官方规范制度 / 官方公开数据】三类信息一键查询与整理。也可在「设置」中维护常用行业。']),
         el('div', { class: 'field', style: 'max-width:320px' }, [el('label', {}, ['所属行业']), indSel]),
         el('div', { class: 'kv-table', style: 'margin-top:12px' }, [
           el('div', { class: 'kv-h' }, [el('span', {}, ['本行业建议关注的指标（参考）'])]),
@@ -179,23 +197,56 @@ export const industryResearchPlugin = {
     const renderStep2 = () => {
       // —— 资料 A：数据源目录（搜索相关专业知识的基础） ——
       const list = el('div', { class: 'kv-table' })
+      const srcHeader = () => el('div', { class: 'kv-h' }, [el('span', {}, ['名称']), el('span', {}, ['类别/频率']), el('span', {}, ['可信度']), el('span', {}, [''])])
+      const groupTitle = (label) => el('div', { class: 'muted', style: 'font-weight:600;margin:12px 0 4px;padding-top:8px;border-top:1px dashed var(--border)' }, [label])
+      const srcRow = (src) => {
+        const idx = s.sources.indexOf(src)
+        const del = el('button', { class: 'mini', title: '删除' }, ['✕'])
+        del.onclick = () => { s.sources.splice(idx, 1); save(s); drawList() }
+        const searchBtn = el('button', { class: 'mini', title: '搜索该源', onclick: () => { const q = encodeURIComponent(src.name + ' ' + wiz.industry); window.open('https://www.bing.com/search?q=' + q, '_blank', 'noopener,noreferrer') } }, ['🔍'])
+        return el('div', { class: 'kv-r', style: 'grid-template-columns:2fr 2fr 1fr 88px' }, [
+          el('div', {}, [el('a', { href: src.url, target: '_blank', rel: 'noreferrer' }, [src.name]), src.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [src.note]) : null]),
+          el('span', {}, [src.category + ' · ' + (src.freq || '—')]),
+          el('span', {}, [src.credibility || '—']),
+          el('div', { class: 'row', style: 'gap:4px;justify-content:flex-end' }, [searchBtn, del])
+        ])
+      }
       const drawList = () => {
         clear(list)
-        list.append(el('div', { class: 'kv-h' }, [el('span', {}, ['名称']), el('span', {}, ['类别/频率']), el('span', {}, ['可信度']), el('span', {}, [''])]))
-        if (!s.sources.length) list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [el('span', { class: 'muted' }, ['暂无数据源，可一键载入行业源或手动添加'])]))
-        s.sources.forEach((src, idx) => {
-          const del = el('button', { class: 'mini', title: '删除' }, ['✕'])
-          del.onclick = () => { s.sources.splice(idx, 1); save(s); drawList() }
-          const searchBtn = el('button', { class: 'mini', title: '搜索该源数据', onclick: () => { const q = encodeURIComponent(src.name + ' ' + wiz.industry + ' 数据'); window.open('https://www.bing.com/search?q=' + q, '_blank', 'noopener,noreferrer') } }, ['🔍'])
-          list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:2fr 2fr 1fr 88px' }, [
-            el('div', {}, [el('a', { href: src.url, target: '_blank', rel: 'noreferrer' }, [src.name]), src.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [src.note]) : null]),
-            el('span', {}, [src.category + ' · ' + (src.freq || '—')]),
-            el('span', {}, [src.credibility || '—']),
-            el('div', { class: 'row', style: 'gap:4px;justify-content:flex-end' }, [searchBtn, del])
-          ]))
+        INFO_TYPES.forEach((t) => {
+          const group = s.sources.filter((x) => (x.infoType || '其他') === t)
+          if (!group.length) return
+          list.append(groupTitle(INFO_TYPE_ICONS[t] + ' ' + t + '（' + group.length + '）'))
+          list.append(srcHeader())
+          group.forEach((src) => list.append(srcRow(src)))
         })
+        const others = s.sources.filter((x) => !INFO_TYPES.includes(x.infoType || ''))
+        if (others.length) {
+          list.append(groupTitle('其他（' + others.length + '）'))
+          list.append(srcHeader())
+          others.forEach((src) => list.append(srcRow(src)))
+        }
+        if (!s.sources.length) list.append(el('div', { class: 'kv-r', style: 'grid-template-columns:1fr' }, [el('span', { class: 'muted' }, ['暂无数据源，可一键载入行业源或手动添加'])]))
       }
       drawList()
+
+      // —— 官方信息快速查询（按信息类型一键检索该行业官方信息） ——
+      const queryBox = el('div', { class: 'grid cols-3', style: 'margin:10px 0' }, INFO_TYPES.map((t) => {
+        const card = el('div', { style: 'border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--panel);display:flex;flex-direction:column;gap:8px' }, [
+          el('b', {}, [INFO_TYPE_ICONS[t] + ' ' + t]),
+          el('span', { class: 'muted' }, ['检索词：' + INFO_TYPE_QUERIES[t]])
+        ])
+        const btn = el('button', { class: 'btn', style: 'width:100%' }, ['🔍 一键查询'])
+        btn.onclick = () => {
+          const portal = INDUSTRY_PORTALS[wiz.industry] || INDUSTRY_PORTALS['通用']
+          let q = wiz.industry + ' ' + INFO_TYPE_QUERIES[t] + ' 官方'
+          if (t === '官方公开数据') q += ' site:data.stats.gov.cn'
+          else q += ' site:' + portal
+          window.open('https://www.bing.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener,noreferrer')
+        }
+        card.append(btn)
+        return card
+      }))
 
       const indSel = el('select', {}, INDUSTRY_PRESETS.map((i) => el('option', { value: i, selected: i === wiz.industry ? 'selected' : null }, [i])))
       const indLoadBtn = el('button', { class: 'btn' }, ['一键载入行业数据源'])
@@ -217,11 +268,12 @@ export const industryResearchPlugin = {
       const catI = el('input', { type: 'text', placeholder: '类别，如 政府与统计' })
       const freqI = el('select', {}, FREQS.map((f) => el('option', { value: f }, [f])))
       const credI = el('select', {}, CRED.map((c) => el('option', { value: c }, [c])))
+      const infoTypeI = el('select', {}, INFO_TYPES.map((t) => el('option', { value: t }, [t])))
       const noteI = el('input', { type: 'text', placeholder: '备注（可选）' })
       const addBtn = el('button', { class: 'btn' }, ['＋ 添加数据源'])
       addBtn.onclick = () => {
         if (!nameI.value.trim() || !urlI.value.trim()) { toast('请填写名称和链接', 'err'); return }
-        s.sources.push({ id: uid(), name: nameI.value.trim(), url: urlI.value.trim(), category: catI.value.trim(), freq: freqI.value, credibility: credI.value, note: noteI.value.trim() })
+        s.sources.push({ id: uid(), name: nameI.value.trim(), url: urlI.value.trim(), category: catI.value.trim(), freq: freqI.value, credibility: credI.value, infoType: infoTypeI.value, note: noteI.value.trim() })
         save(s); drawList(); nameI.value = urlI.value = catI.value = noteI.value = ''; toast('已添加', 'ok')
       }
 
@@ -433,15 +485,18 @@ export const industryResearchPlugin = {
       stepBody.append(
         el('div', { class: 'card' }, [
           el('h3', {}, ['②-1 数据源目录（' + wiz.industry + '）']),
-          el('p', { class: 'hint' }, ['一键载入该行业的官方/专业数据源；点 🔍 在搜索引擎查找该来源的具体数据。这是「搜索专业知识」的基础。']),
+          el('p', { class: 'hint' }, ['上方按「官方资讯 / 官方规范制度 / 官方公开数据」三类一键查询；下方为已登记数据源目录，载入后按类型分组，点 🔍 在搜索引擎检索该来源。']),
           el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' }, [el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSel]), indLoadBtn, genBtn]),
+          queryBox,
           list,
           el('h3', { style: 'margin-top:16px' }, ['添加数据源']),
           el('div', { class: 'grid cols-2' }, [
             el('div', { class: 'field' }, [el('label', {}, ['名称']), nameI]),
             el('div', { class: 'field' }, [el('label', {}, ['链接']), urlI]),
             el('div', { class: 'field' }, [el('label', {}, ['类别']), catI]),
-            el('div', { class: 'row', style: 'gap:8px' }, [el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['更新频率']), freqI]), el('div', { class: 'field', style: 'flex:1' }, [el('label', {}, ['可信度']), credI])])
+            el('div', { class: 'field' }, [el('label', {}, ['信息类型']), infoTypeI]),
+            el('div', { class: 'field' }, [el('label', {}, ['更新频率']), freqI]),
+            el('div', { class: 'field' }, [el('label', {}, ['可信度']), credI])
           ]),
           el('div', { class: 'field' }, [el('label', {}, ['备注']), noteI]),
           addBtn
@@ -485,7 +540,7 @@ export const industryResearchPlugin = {
         if (!need) { toast('请先描述你的研究需求', 'err'); return }
         wiz.need = need; wiz.angle = angleSel.value
         // 收集已有资料作为上下文
-        const srcText = s.sources.length ? s.sources.map((x) => '· ' + x.name + '（' + x.url + '，可信度' + (x.credibility || '—') + '）').join('\n') : '（未登记数据源）'
+        const srcText = s.sources.length ? s.sources.map((x) => '· ' + x.name + '【' + (x.infoType || '其他') + '】' + '（' + x.url + '，可信度' + (x.credibility || '—') + '）').join('\n') : '（未登记数据源）'
         const dsSummary = s.datasets.length ? s.datasets.map((d) => {
           const cols = d.columns.join('、')
           const sample = d.rows.slice(0, 5).map((r) => d.columns.map((c) => c + '=' + r[c]).join('，')).join('\n')
