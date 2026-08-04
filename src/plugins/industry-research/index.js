@@ -13,19 +13,94 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 // 官方信息类型：选行业后，按此分类检索与整理官方信息
 const INFO_TYPES = ['官方资讯', '官方规范制度', '官方公开数据']
 const INFO_TYPE_ICONS = { '官方资讯': '📰', '官方规范制度': '📋', '官方公开数据': '📊' }
-// 每类信息的检索关键词（用于「一键查询」组合搜索引擎）
-const INFO_TYPE_QUERIES = {
-  '官方资讯': '通知 公告 新闻 动态 官方发布',
-  '官方规范制度': '办法 条例 规定 标准 规范 政策 文件',
-  '官方公开数据': '统计 公报 数据 年鉴 指标'
-}
-// 每个行业的主要官方门户域名（资讯/规范制度类查询用 site: 限定官方站内）
-const INDUSTRY_PORTALS = {
-  '建筑规划': 'mohurd.gov.cn',
-  '非遗传创': 'mct.gov.cn',
-  '研学': 'moe.gov.cn',
-  '自媒体': 'cnnic.net.cn',
-  '通用': 'gov.cn'
+// 官方精选库：选行业 + 信息类型后，直接内联展示的权威官方条目（不跳转第三方搜索）
+// 每条：t=标题 u=官方链接 s=来源机构 d=一句话精选说明
+const CURATED_INFO = {
+  '通用': {
+    '官方资讯': [
+      { t: '中国政府网·国务院新闻', u: 'https://www.gov.cn/', s: '国务院办公厅', d: '国务院政策发布、政务动态、重要会议与讲话，宏观政策一手来源。' },
+      { t: '国务院政策文件库', u: 'https://www.gov.cn/zhengce/index.htm', s: '中国政府网', d: '集中公开党中央、国务院及部门政策文件，可按主题/时间检索。' },
+      { t: '新华网·权威发布', u: 'https://www.news.cn/', s: '新华通讯社', d: '国家通讯社，重大政策与官方资讯首发平台。' }
+    ],
+    '官方规范制度': [
+      { t: '国家法律法规数据库', u: 'https://flk.npc.gov.cn/', s: '全国人大', d: '现行法律、行政法规、司法解释权威库，查法条原文。' },
+      { t: '国务院政策文件库（法规）', u: 'https://www.gov.cn/zhengce/flfg.htm', s: '中国政府网', d: '行政法规、国务院文件、部门规章集中公开。' },
+      { t: '国家标准全文公开系统', u: 'https://openstd.samr.gov.cn/', s: '市场监管总局', d: '强制性/推荐性国家标准全文公开检索，查行业规范。' }
+    ],
+    '官方公开数据': [
+      { t: '国家统计局', u: 'https://www.stats.gov.cn/', s: '国家统计局', d: '综合宏观统计数据：GDP、人口、投资、消费等。' },
+      { t: '国家数据平台', u: 'https://data.stats.gov.cn/', s: '国家统计局', d: '可在线检索、下载细分指标时序数据。' },
+      { t: '中国人民银行·金融数据', u: 'http://www.pbc.gov.cn/', s: '中国人民银行', d: '货币供应、信贷、利率等金融统计数据。' }
+    ]
+  },
+  '建筑规划': {
+    '官方资讯': [
+      { t: '住建部·新闻发布', u: 'https://www.mohurd.gov.cn/', s: '住房和城乡建设部', d: '城市更新、建筑业、房地产政策动态与官方发布。' },
+      { t: '自然资源部·新闻', u: 'https://www.mnr.gov.cn/', s: '自然资源部', d: '国土空间规划、土地出让、用地审批官方动态。' },
+      { t: '中国建筑业协会', u: 'http://www.zgjzy.org/', s: '中国建筑业协会', d: '行业运行、企业排名、产值信息发布。' }
+    ],
+    '官方规范制度': [
+      { t: '国家标准全文公开系统（工程建设）', u: 'https://openstd.samr.gov.cn/', s: '市场监管总局', d: '工程建设国家标准（GB）全文检索。' },
+      { t: '住建部·政策文件', u: 'https://www.mohurd.gov.cn/', s: '住房和城乡建设部', d: '城市更新、绿色建筑、建筑市场监管部门规章。' },
+      { t: '中华人民共和国城乡规划法', u: 'https://flk.npc.gov.cn/', s: '全国人大', d: '《城乡规划法》法条原文。' }
+    ],
+    '官方公开数据': [
+      { t: '国家数据·固定资产投资/房地产', u: 'https://data.stats.gov.cn/', s: '国家统计局', d: '房地产开发投资、建筑业总产值、新开工面积等指标。' },
+      { t: '自然资源部·土地市场', u: 'https://www.mnr.gov.cn/', s: '自然资源部', d: '土地出让、成交价款等公开数据。' },
+      { t: '中国建筑业协会·统计', u: 'http://www.zgjzy.org/', s: '中国建筑业协会', d: '建筑业总产值、企业排名等。' }
+    ]
+  },
+  '非遗传创': {
+    '官方资讯': [
+      { t: '文旅部·非遗司动态', u: 'https://www.mct.gov.cn/', s: '文化和旅游部', d: '国家级非遗名录、传承人、非遗活动官方发布。' },
+      { t: '中国非物质文化遗产网', u: 'http://www.ihchina.cn/', s: '中国非遗保护中心', d: '非遗项目数据库、展览、传承活动资讯。' },
+      { t: '中国文化产业协会', u: 'http://www.ccia.org.cn/', s: '中国文化产业协会', d: '文创产业动态、市场信息。' }
+    ],
+    '官方规范制度': [
+      { t: '中华人民共和国非物质文化遗产法', u: 'https://flk.npc.gov.cn/', s: '全国人大', d: '《非物质文化遗产法》法条原文。' },
+      { t: '文旅部·政策文件', u: 'https://www.mct.gov.cn/', s: '文化和旅游部', d: '非遗保护、文化产业相关规章与通知。' },
+      { t: '国家级非遗代表性传承人认定办法', u: 'https://www.mct.gov.cn/', s: '文化和旅游部', d: '传承人认定与管理办法。' }
+    ],
+    '官方公开数据': [
+      { t: '国家数据·文化及相关产业', u: 'https://data.stats.gov.cn/', s: '国家统计局', d: '文化产业增加值、文化企业营收等。' },
+      { t: '中国非遗网·项目数据库', u: 'http://www.ihchina.cn/', s: '中国非遗保护中心', d: '各级非遗项目数量、传承人统计。' },
+      { t: '文旅部·文化和旅游统计', u: 'https://www.mct.gov.cn/', s: '文化和旅游部', d: '文旅接待人次、收入等公开数据。' }
+    ]
+  },
+  '研学': {
+    '官方资讯': [
+      { t: '教育部·新闻发布', u: 'http://www.moe.gov.cn/', s: '教育部', d: '中小学教育、研学实践教育政策动态。' },
+      { t: '文旅部·文旅动态', u: 'https://www.mct.gov.cn/', s: '文化和旅游部', d: '研学旅行、文旅融合活动资讯。' },
+      { t: '中国旅游研究院', u: 'http://www.ctaweb.org/', s: '中国旅游研究院', d: '旅游/研学市场研究报告发布。' }
+    ],
+    '官方规范制度': [
+      { t: '研学旅行服务规范（LB/T 054）', u: 'https://openstd.samr.gov.cn/', s: '文旅部/国标委', d: '研学旅行服务行业标准，查服务要求。' },
+      { t: '教育部·政策文件', u: 'http://www.moe.gov.cn/', s: '教育部', d: '中小学综合实践、研学实践教育基地政策。' },
+      { t: '中华人民共和国未成年人保护法', u: 'https://flk.npc.gov.cn/', s: '全国人大', d: '《未成年人保护法》法条原文。' }
+    ],
+    '官方公开数据': [
+      { t: '国家数据·教育统计', u: 'https://data.stats.gov.cn/', s: '国家统计局', d: '中小学在校生、教育支出等。' },
+      { t: '教育部·教育统计数据', u: 'http://www.moe.gov.cn/', s: '教育部', d: '全国教育事业发展统计公报。' },
+      { t: '中国旅游研究院·研究报告', u: 'http://www.ctaweb.org/', s: '中国旅游研究院', d: '旅游/研学市场规模研究。' }
+    ]
+  },
+  '自媒体': {
+    '官方资讯': [
+      { t: 'CNNIC·互联网络动态', u: 'https://www.cnnic.net.cn/', s: '中国互联网络信息中心', d: '网民规模、互联网发展权威发布。' },
+      { t: '广电总局·网络视听', u: 'https://www.nrta.gov.cn/', s: '国家广播电视总局', d: '网络视听、短视频管理动态。' },
+      { t: '中国广告协会', u: 'http://www.china-caa.org/', s: '中国广告协会', d: '广告行业动态、自律规范。' }
+    ],
+    '官方规范制度': [
+      { t: '网络信息内容生态治理规定', u: 'https://flk.npc.gov.cn/', s: '国家网信办', d: '网络内容生态治理核心规章。' },
+      { t: '互联网信息服务管理办法', u: 'https://flk.npc.gov.cn/', s: '国务院', d: '互联网信息服务管理基础法规。' },
+      { t: '中华人民共和国网络安全法', u: 'https://flk.npc.gov.cn/', s: '全国人大', d: '《网络安全法》法条原文。' }
+    ],
+    '官方公开数据': [
+      { t: 'CNNIC·互联网发展统计报告', u: 'https://www.cnnic.net.cn/', s: '中国互联网络信息中心', d: '网民规模、短视频用户、网络视频用户数据。' },
+      { t: '国家数据·信息服务业', u: 'https://data.stats.gov.cn/', s: '国家统计局', d: '信息服务、数字经济相关统计。' },
+      { t: '网络视听发展研究报告', u: 'https://www.nrta.gov.cn/', s: '国家广电总局', d: '短视频、网络直播用户与市场规模。' }
+    ]
+  }
 }
 
 // 通用官方/专业数据源（任意行业都可叠加）
@@ -142,6 +217,47 @@ export const industryResearchPlugin = {
     }
     const curDs = () => s.datasets.find((d) => d.id === wiz.datasetId)
 
+    // 内联弹窗：按行业+信息类型精选官方权威条目（不跳转第三方搜索）
+    const openCuratedModal = (industry, type, keyword) => {
+      const specific = (industry !== '通用' && CURATED_INFO[industry] && CURATED_INFO[industry][type]) ? CURATED_INFO[industry][type] : []
+      const base = (CURATED_INFO['通用'] && CURATED_INFO['通用'][type]) || []
+      const items = specific.length ? specific : base
+      const kw = (keyword || '').trim()
+      let filtered = items, note
+      if (kw) {
+        const low = kw.toLowerCase()
+        const hit = items.filter((x) => (x.t + ' ' + x.d + ' ' + x.s).toLowerCase().includes(low))
+        filtered = hit.length ? hit : items
+        note = hit.length ? ('已按「' + kw + '」筛选，命中 ' + hit.length + ' 条（共 ' + items.length + ' 条）') : ('未匹配到含「' + kw + '」的条目，已显示全部 ' + items.length + ' 条')
+      } else {
+        note = '已为您精选 ' + items.length + ' 条官方权威入口'
+      }
+      const overlay = el('div', { style: 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto' })
+      const close = () => overlay.remove()
+      overlay.onclick = (e) => { if (e.target === overlay) close() }
+      const box = el('div', { style: 'background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);max-width:760px;width:100%;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.25)' })
+      const head = el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:12px' })
+      head.append(el('h3', { style: 'margin:0' }, [INFO_TYPE_ICONS[type] + ' ' + industry + ' · ' + type + ' · 官方精选']))
+      head.append(el('button', { class: 'mini', title: '关闭', onclick: close }, ['✕']))
+      box.append(head)
+      box.append(el('div', { class: 'muted', style: 'margin:6px 0 14px;font-size:13px' }, [note]))
+      const listWrap = el('div', { style: 'display:flex;flex-direction:column;gap:10px' })
+      filtered.forEach((it) => {
+        const card = el('div', { style: 'border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;background:var(--bg)' })
+        const top = el('div', { style: 'display:flex;align-items:center;justify-content:space-between;gap:10px' })
+        top.append(el('b', { style: 'font-size:14px' }, [it.t]))
+        top.append(el('a', { href: it.u, target: '_blank', rel: 'noreferrer', style: 'white-space:nowrap;color:var(--primary);font-weight:600' }, ['查看官方原文 ↗']))
+        card.append(top)
+        card.append(el('div', { class: 'muted', style: 'font-size:12.5px;margin-top:3px' }, ['来源：' + it.s]))
+        card.append(el('div', { style: 'font-size:13.5px;margin-top:6px;line-height:1.6;color:var(--text)' }, [it.d]))
+        listWrap.append(card)
+      })
+      box.append(listWrap)
+      box.append(el('div', { class: 'muted', style: 'margin-top:14px;font-size:12px' }, ['以上为按官方来源整理精选的权威入口，点击「查看官方原文」直达官方页面，不经过第三方搜索引擎。']))
+      overlay.append(box)
+      document.body.append(overlay)
+    }
+
     const stepsBar = el('div', { class: 'wiz-steps' })
     const stepBody = el('div', {})
     const navBar = el('div', { class: 'wiz-nav' })
@@ -181,7 +297,7 @@ export const industryResearchPlugin = {
       indSel.onchange = () => { wiz.industry = indSel.value }
       stepBody.append(el('div', { class: 'card' }, [
         el('h3', {}, ['① 选择研究行业']),
-        el('p', { class: 'hint' }, ['选择行业后，可在②对【官方资讯 / 官方规范制度 / 官方公开数据】三类信息一键查询与整理。也可在「设置」中维护常用行业。']),
+        el('p', { class: 'hint' }, ['选择行业后，可在②对【官方资讯 / 官方规范制度 / 官方公开数据】三类信息一键精选与整理（内联展示，不跳转第三方搜索）。也可在「设置」中维护常用行业。']),
         el('div', { class: 'field', style: 'max-width:320px' }, [el('label', {}, ['所属行业']), indSel]),
         el('div', { class: 'kv-table', style: 'margin-top:12px' }, [
           el('div', { class: 'kv-h' }, [el('span', {}, ['本行业建议关注的指标（参考）'])]),
@@ -203,7 +319,7 @@ export const industryResearchPlugin = {
         const idx = s.sources.indexOf(src)
         const del = el('button', { class: 'mini', title: '删除' }, ['✕'])
         del.onclick = () => { s.sources.splice(idx, 1); save(s); drawList() }
-        const searchBtn = el('button', { class: 'mini', title: '搜索该源', onclick: () => { const q = encodeURIComponent(src.name + ' ' + wiz.industry); window.open('https://www.bing.com/search?q=' + q, '_blank', 'noopener,noreferrer') } }, ['🔍'])
+        const searchBtn = el('button', { class: 'mini', title: '访问官方页面', onclick: () => { window.open(src.url, '_blank', 'noopener,noreferrer') } }, ['🔗'])
         return el('div', { class: 'kv-r', style: 'grid-template-columns:2fr 2fr 1fr 88px' }, [
           el('div', {}, [el('a', { href: src.url, target: '_blank', rel: 'noreferrer' }, [src.name]), src.note ? el('div', { class: 'muted', style: 'font-size:12px' }, [src.note]) : null]),
           el('span', {}, [src.category + ' · ' + (src.freq || '—')]),
@@ -230,20 +346,17 @@ export const industryResearchPlugin = {
       }
       drawList()
 
-      // —— 官方信息快速查询（按信息类型一键检索该行业官方信息） ——
+      // —— 官方信息快速查询（按信息类型精选官方内容，内联展示，不跳转第三方） ——
+      const kwInput = el('input', { type: 'text', placeholder: '提示词 / 关键词（可选，如：城市更新 / 传承人 / 短视频），用于筛选精选条目' })
       const queryBox = el('div', { class: 'grid cols-3', style: 'margin:10px 0' }, INFO_TYPES.map((t) => {
+        const specific = (wiz.industry !== '通用' && CURATED_INFO[wiz.industry] && CURATED_INFO[wiz.industry][t]) ? CURATED_INFO[wiz.industry][t] : []
+        const count = specific.length ? specific.length : ((CURATED_INFO['通用'] && CURATED_INFO['通用'][t]) ? CURATED_INFO['通用'][t].length : 0)
         const card = el('div', { style: 'border:1px solid var(--border);border-radius:var(--radius);padding:14px;background:var(--panel);display:flex;flex-direction:column;gap:8px' }, [
           el('b', {}, [INFO_TYPE_ICONS[t] + ' ' + t]),
-          el('span', { class: 'muted' }, ['检索词：' + INFO_TYPE_QUERIES[t]])
+          el('span', { class: 'muted' }, ['官方精选 ' + count + ' 条权威入口'])
         ])
-        const btn = el('button', { class: 'btn', style: 'width:100%' }, ['🔍 一键查询'])
-        btn.onclick = () => {
-          const portal = INDUSTRY_PORTALS[wiz.industry] || INDUSTRY_PORTALS['通用']
-          let q = wiz.industry + ' ' + INFO_TYPE_QUERIES[t] + ' 官方'
-          if (t === '官方公开数据') q += ' site:data.stats.gov.cn'
-          else q += ' site:' + portal
-          window.open('https://www.bing.com/search?q=' + encodeURIComponent(q), '_blank', 'noopener,noreferrer')
-        }
+        const btn = el('button', { class: 'btn', style: 'width:100%' }, ['📑 一键精选'])
+        btn.onclick = () => openCuratedModal(wiz.industry, t, kwInput.value)
         card.append(btn)
         return card
       }))
@@ -485,8 +598,9 @@ export const industryResearchPlugin = {
       stepBody.append(
         el('div', { class: 'card' }, [
           el('h3', {}, ['②-1 数据源目录（' + wiz.industry + '）']),
-          el('p', { class: 'hint' }, ['上方按「官方资讯 / 官方规范制度 / 官方公开数据」三类一键查询；下方为已登记数据源目录，载入后按类型分组，点 🔍 在搜索引擎检索该来源。']),
+          el('p', { class: 'hint' }, ['上方按「官方资讯 / 官方规范制度 / 官方公开数据」三类「一键精选」官方权威内容（内联弹窗展示，不跳转第三方搜索）；下方为已登记数据源目录，载入后按类型分组。']),
           el('div', { class: 'row', style: 'gap:8px;flex-wrap:wrap;margin:8px 0' }, [el('div', { class: 'field', style: 'flex:1;min-width:140px' }, [el('label', {}, ['行业']), indSel]), indLoadBtn, genBtn]),
+          el('div', { class: 'field', style: 'margin:4px 0 0' }, [el('label', {}, ['提示词 / 关键词（可选，用于筛选精选条目）']), kwInput]),
           queryBox,
           list,
           el('h3', { style: 'margin-top:16px' }, ['添加数据源']),
