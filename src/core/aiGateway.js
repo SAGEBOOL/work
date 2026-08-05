@@ -22,6 +22,8 @@ export const PROVIDERS = {
     id: 'zhipu', name: '智谱 GLM',
     base: 'https://open.bigmodel.cn/api/paas/v4',
     models: ['glm-4-plus', 'glm-4-air', 'glm-4-flash'],
+    // 图像生成模型（走 /images/generations 端点，OpenAI 兼容，浏览器 CORS 放行）
+    imageModels: ['cogview-3-plus', 'cogview-3'],
     doc: 'https://open.bigmodel.cn/usercenter/apikeys',
     browserOk: true
   },
@@ -224,4 +226,62 @@ export async function callChat(opts = {}) {
 
   const json = await res.json()
   return json.choices?.[0]?.message?.content || ''
+}
+
+// 统一图像生成调用（OpenAI 兼容 /images/generations 端点）。
+// 与 callChat 共用供应商配置与取 key 逻辑；兼容 url / b64_json 两种返回。
+// opts: { prompt, provider?, model, size?, n? }
+// 返回数组：[{ url: string|null, b64: string|null }]
+export async function callImageGen(opts = {}) {
+  const s = getSettings()
+  const providerId = opts.provider || s.defaultProvider
+  const p = getProvider(providerId)
+  if (!p) throw new Error('未知供应商: ' + providerId)
+  if (p.isLocal) throw new Error('Ollama 本地模型暂不支持图像生成，请改用智谱 GLM 或设置中心的自定义模型')
+
+  const key = p.isCustom ? p.apiKey : s.apiKeys[providerId]
+  if (!key) throw new Error('未配置 ' + p.name + ' 的 API Key，请到「设置」填写')
+
+  const model = opts.model
+  if (!model) throw new Error('请填写图像生成模型名（如智谱 cogview-3）')
+  if (!opts.prompt || !opts.prompt.trim()) throw new Error('请先输入提示词')
+
+  const url = p.base + '/images/generations'
+  const body = { model, prompt: opts.prompt.trim() }
+  if (opts.n) body.n = Math.min(opts.n | 0, 4)
+  if (opts.size) body.size = opts.size
+
+  let res
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: JSON.stringify(body)
+    })
+  } catch (netErr) {
+    const host = (() => { try { return new URL(p.base).host } catch { return p.base } })()
+    let reason
+    if (!p.browserOk) {
+      reason = p.name + ' 不支持浏览器直连，请换用支持浏览器调用的厂商（如智谱 GLM）或在设置中心添加自定义模型。'
+    } else {
+      reason = '浏览器无法连接 ' + p.name + '（网络不可达或被 CORS 拦截）。国内访问 ' + host + ' 可能超时，可在能直连的网络下使用。'
+    }
+    throw new Error('✗ 网络/CORS 错误：' + reason)
+  }
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    let hint = ''
+    if (res.status === 401) hint = '（401：API Key 无效或未授权，请检查密钥）'
+    else if (res.status === 403) hint = '（403：无权限，请确认密钥状态）'
+    else if (res.status === 404) hint = '（404：模型名或接口地址不正确，请检查图像生成模型名）'
+    else if (res.status === 429) hint = '（429：额度用尽或触发限流）'
+    else if (res.status >= 500) hint = '（5xx：厂商服务端异常，稍后重试）'
+    throw new Error(p.name + ' 图像生成失败 (' + res.status + ')：' + errText.slice(0, 240) + ' ' + hint)
+  }
+
+  const json = await res.json().catch(() => ({}))
+  const arr = Array.isArray(json.data) ? json.data : []
+  if (!arr.length) throw new Error(p.name + ' 返回为空：' + JSON.stringify(json).slice(0, 200))
+  return arr.map((d) => ({ url: d.url || null, b64: d.b64_json || null }))
 }
