@@ -134,15 +134,27 @@ function renderAiGen(panel) {
     ? provs.map((p) => el('option', { value: p.id }, [p.name]))
     : [el('option', { value: '' }, ['（未配置供应商）'])])
 
-  const modelInput = el('input', { type: 'text', placeholder: '如 cogview-3 / 自定义模型名', style: 'width:100%' })
-  const sizeInput = el('input', { type: 'text', value: '1024x1024', style: 'width:100%' })
+  const modelInput = el('input', { type: 'text', placeholder: '如 cogview-3 / 自定义模型名', required: 'true', style: 'width:100%' })
+  const sizeSel = el('select', {}, [
+    el('option', { value: '1024x1024', selected: 'selected' }, ['1024 × 1024（正方形）']),
+    el('option', { value: '768x1344' }, ['768 × 1344（竖图）']),
+    el('option', { value: '1344x768' }, ['1344 × 768（横图）']),
+    el('option', { value: '1024x1792' }, ['1024 × 1792（竖图）']),
+    el('option', { value: '1792x1024' }, ['1792 × 1024（横图）']),
+    el('option', { value: '512x512' }, ['512 × 512（小图）'])
+  ])
   const countSel = el('select', {}, [1, 2, 3, 4].map((n) =>
     el('option', { value: String(n), ...(n === 1 ? { selected: 'selected' } : {}) }, [String(n) + ' 张'])))
   const promptArea = el('textarea', {
-    rows: '4',
+    rows: '4', required: 'true',
     placeholder: '描述你想生成的画面，越具体越好。例如：国潮风格的水墨插画，黑色背景上金色祥云与牡丹，非遗主题海报。',
     style: 'width:100%;resize:vertical;font:inherit'
   })
+
+  // 输入时自动清除错误高亮
+  const clearFieldError = (field) => { field.style.borderColor = '' }
+  promptArea.oninput = () => clearFieldError(promptArea)
+  modelInput.oninput = () => clearFieldError(modelInput)
   const genBtn = el('button', { class: 'btn' }, ['生成图片'])
   const alert = el('div', {})
   const results = el('div', {
@@ -181,13 +193,25 @@ function renderAiGen(panel) {
   genBtn.onclick = async () => {
     const prompt = promptArea.value.trim()
     const prov = providerSel.value
-    if (!prompt) { alert.className = 'alert err'; alert.textContent = '请输入提示词'; return }
+    if (!prompt) {
+      alert.className = 'alert err'
+      alert.textContent = '提示词为必填项，请描述你想生成的画面'
+      promptArea.style.borderColor = 'var(--error)'
+      promptArea.focus()
+      return
+    }
     if (!prov) { alert.className = 'alert err'; alert.textContent = '请先到「设置」配置供应商'; return }
     const p = getProvider(prov)
     const key = p.isCustom ? p.apiKey : getSettings().apiKeys[prov]
     if (!key) { alert.className = 'alert err'; alert.textContent = '「' + p.name + '」未配置 API Key，请到「设置」填写'; return }
     const model = modelInput.value.trim()
-    if (!model) { alert.className = 'alert err'; alert.textContent = '请填写图像生成模型名'; return }
+    if (!model) {
+      alert.className = 'alert err'
+      alert.textContent = '模型名为必填项，请填写图像生成模型名'
+      modelInput.style.borderColor = 'var(--error)'
+      modelInput.focus()
+      return
+    }
 
     genBtn.disabled = true
     genBtn.textContent = '生成中…'
@@ -195,7 +219,7 @@ function renderAiGen(panel) {
     clear(results)
     results.append(el('div', { class: 'muted' }, ['⏳ 正在生成，文生图通常需要 5–30 秒，请稍候…']))
     try {
-      const imgs = await callImageGen({ prompt, provider: prov, model, size: sizeInput.value.trim() || '1024x1024', n: +countSel.value })
+      const imgs = await callImageGen({ prompt, provider: prov, model, size: sizeSel.value, n: +countSel.value })
       clear(results)
       imgs.forEach((it, i) => {
         const src = it.url || ('data:image/png;base64,' + it.b64)
@@ -218,13 +242,15 @@ function renderAiGen(panel) {
     }
   }
 
+  const requiredMark = () => el('span', { style: 'color:var(--error);margin-left:4px' }, ['*'])
+
   panel.append(
     el('div', { class: 'card' }, [
-      el('div', { class: 'field' }, [el('label', {}, ['提示词（Prompt）']), promptArea]),
+      el('div', { class: 'field' }, [el('label', {}, ['提示词（Prompt）', requiredMark()]), promptArea]),
       el('div', { class: 'grid cols-2', style: 'margin-top:12px' }, [
-        el('div', { class: 'field' }, [el('label', {}, ['供应商']), providerSel]),
-        el('div', { class: 'field' }, [el('label', {}, ['模型名']), modelInput]),
-        el('div', { class: 'field' }, [el('label', {}, ['尺寸 (宽x高)']), sizeInput]),
+        el('div', { class: 'field' }, [el('label', {}, ['供应商', requiredMark()]), providerSel]),
+        el('div', { class: 'field' }, [el('label', {}, ['模型名', requiredMark()]), modelInput]),
+        el('div', { class: 'field' }, [el('label', {}, ['尺寸 (宽x高)']), sizeSel]),
         el('div', { class: 'field' }, [el('label', {}, ['数量']), countSel])
       ]),
       el('div', { class: 'row', style: 'margin-top:14px' }, [genBtn]),
