@@ -1,6 +1,8 @@
 // 图片处理：统一「图片去水印」「图片高清修复（新增）」「视频去水印」三个功能到一个板块。
 // 去水印两项直接复用既有插件逻辑（保持功能不变、纯前端），高清修复为本机画布增强。
 import { el, clear, toast } from '../../core/ui.js'
+import { getSettings } from '../../core/store.js'
+import { callImageGen, configuredProviders, getProvider } from '../../core/aiGateway.js'
 import { imageWatermarkPlugin } from '../image-watermark/index.js'
 import { videoWatermarkPlugin } from '../video-watermark/index.js'
 
@@ -125,6 +127,114 @@ function renderEnhance(panel) {
   )
 }
 
+// —— AI 生图：文生图（OpenAI 兼容 /images/generations 端点）——
+function renderAiGen(panel) {
+  const provs = configuredProviders()
+  const providerSel = el('select', {}, provs.length
+    ? provs.map((p) => el('option', { value: p.id }, [p.name]))
+    : [el('option', { value: '' }, ['（未配置供应商）'])])
+
+  const modelInput = el('input', { type: 'text', placeholder: '如 cogview-3 / 自定义模型名', style: 'width:100%' })
+  const sizeInput = el('input', { type: 'text', value: '1024x1024', style: 'width:100%' })
+  const countSel = el('select', {}, [1, 2, 3, 4].map((n) =>
+    el('option', { value: String(n), ...(n === 1 ? { selected: 'selected' } : {}) }, [String(n) + ' 张'])))
+  const promptArea = el('textarea', {
+    rows: '4',
+    placeholder: '描述你想生成的画面，越具体越好。例如：国潮风格的水墨插画，黑色背景上金色祥云与牡丹，非遗主题海报。',
+    style: 'width:100%;resize:vertical;font:inherit'
+  })
+  const genBtn = el('button', { class: 'btn' }, ['生成图片'])
+  const alert = el('div', {})
+  const results = el('div', {
+    style: 'margin-top:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px'
+  })
+
+  // 切换供应商时自动填入默认图像模型
+  const fillModel = () => {
+    const p = getProvider(providerSel.value)
+    if (!p) { modelInput.value = ''; return }
+    if (p.imageModels && p.imageModels.length) modelInput.value = p.imageModels[0]
+    else if (p.isCustom && p.model) modelInput.value = p.model
+  }
+  if (provs.length) fillModel()
+  providerSel.onchange = fillModel
+
+  if (!provs.length) {
+    alert.className = 'alert err'
+    alert.textContent = '未检测到任何已配置的供应商。请先到「设置」填写至少一个支持图像生成的 API Key（推荐智谱 GLM，模型 cogview-3；或添加 SiliconFlow 等自定义模型）。'
+  }
+
+  const downloadImage = (item, idx) => {
+    const a = el('a', { download: 'ai-image-' + (idx + 1) + '.png' })
+    if (item.b64) {
+      a.href = 'data:image/png;base64,' + item.b64
+      document.body.append(a); a.click(); a.remove()
+    } else if (item.url) {
+      fetch(item.url).then((r) => r.blob()).then((b) => {
+        const u = URL.createObjectURL(b)
+        a.href = u; document.body.append(a); a.click(); a.remove()
+        setTimeout(() => URL.revokeObjectURL(u), 1500)
+      }).catch(() => { window.open(item.url, '_blank') })
+    }
+  }
+
+  genBtn.onclick = async () => {
+    const prompt = promptArea.value.trim()
+    const prov = providerSel.value
+    if (!prompt) { alert.className = 'alert err'; alert.textContent = '请输入提示词'; return }
+    if (!prov) { alert.className = 'alert err'; alert.textContent = '请先到「设置」配置供应商'; return }
+    const p = getProvider(prov)
+    const key = p.isCustom ? p.apiKey : getSettings().apiKeys[prov]
+    if (!key) { alert.className = 'alert err'; alert.textContent = '「' + p.name + '」未配置 API Key，请到「设置」填写'; return }
+    const model = modelInput.value.trim()
+    if (!model) { alert.className = 'alert err'; alert.textContent = '请填写图像生成模型名'; return }
+
+    genBtn.disabled = true
+    genBtn.textContent = '生成中…'
+    alert.className = ''; alert.textContent = ''
+    clear(results)
+    results.append(el('div', { class: 'muted' }, ['⏳ 正在生成，文生图通常需要 5–30 秒，请稍候…']))
+    try {
+      const imgs = await callImageGen({ prompt, provider: prov, model, size: sizeInput.value.trim() || '1024x1024', n: +countSel.value })
+      clear(results)
+      imgs.forEach((it, i) => {
+        const src = it.url || ('data:image/png;base64,' + it.b64)
+        results.append(el('div', { class: 'card', style: 'padding:10px' }, [
+          el('img', { src, alt: 'AI 生成 ' + (i + 1), loading: 'lazy', style: 'width:100%;border-radius:8px;display:block;background:var(--bg-2)' }),
+          el('div', { class: 'row', style: 'margin-top:10px;justify-content:flex-end' }, [
+            el('button', { class: 'btn ghost', onclick: () => downloadImage(it, i) }, ['下载'])
+          ])
+        ]))
+      })
+      alert.className = 'alert ok'
+      alert.textContent = '✓ 已生成 ' + imgs.length + ' 张图片（来自 ' + p.name + ' · ' + model + '）'
+    } catch (e) {
+      clear(results)
+      alert.className = 'alert err'
+      alert.textContent = e.message || String(e)
+    } finally {
+      genBtn.disabled = false
+      genBtn.textContent = '生成图片'
+    }
+  }
+
+  panel.append(
+    el('div', { class: 'card' }, [
+      el('div', { class: 'field' }, [el('label', {}, ['提示词（Prompt）']), promptArea]),
+      el('div', { class: 'grid cols-2', style: 'margin-top:12px' }, [
+        el('div', { class: 'field' }, [el('label', {}, ['供应商']), providerSel]),
+        el('div', { class: 'field' }, [el('label', {}, ['模型名']), modelInput]),
+        el('div', { class: 'field' }, [el('label', {}, ['尺寸 (宽x高)']), sizeInput]),
+        el('div', { class: 'field' }, [el('label', {}, ['数量']), countSel])
+      ]),
+      el('div', { class: 'row', style: 'margin-top:14px' }, [genBtn]),
+      alert,
+      el('p', { class: 'hint', style: 'margin-top:10px' }, ['内置支持图像生成的厂商：智谱 GLM（cogview-3）。DeepSeek / Kimi / 通义等内置模型无图像生成能力；可在「设置」添加自定义 OpenAI 兼容服务（如 SiliconFlow / 硅基流动）来扩展。各厂商支持的尺寸与模型名不同，若报错请按提示调整。图像由所选厂商生成，提示词会发往该厂商。'])
+    ]),
+    results
+  )
+}
+
 export const imageProcessingPlugin = {
   id: 'image-processing',
   name: '图片处理',
@@ -134,7 +244,8 @@ export const imageProcessingPlugin = {
     const tabsDef = [
       { label: '🪄 图片去水印', plug: imageWatermarkPlugin },
       { label: '✨ 图片高清修复', render: renderEnhance },
-      { label: '🎬 视频去水印', plug: videoWatermarkPlugin }
+      { label: '🎬 视频去水印', plug: videoWatermarkPlugin },
+      { label: '🎨 AI 生图', render: renderAiGen }
     ]
     const seg = el('div', { class: 'seg' })
     const buttons = tabsDef.map((t, i) => {
@@ -148,13 +259,13 @@ export const imageProcessingPlugin = {
       clear(panel)
       const t = tabsDef[i]
       if (t.plug) t.plug.mount(panel, { navigate() {} })
-      else renderEnhance(panel)
+      else if (t.render) t.render(panel)
     }
     setTab(0)
 
     const page = el('div', { class: 'page' }, [
       el('h1', {}, ['图片处理']),
-      el('p', { class: 'sub' }, ['图片去水印 · 图片高清修复 · 视频去水印，纯前端处理，数据不出本机。']),
+      el('p', { class: 'sub' }, ['图片去水印 · 图片高清修复 · 视频去水印 · AI 生图，纯前端处理，数据不出本机。']),
       seg, panel
     ])
     root.append(page)
