@@ -232,6 +232,10 @@ function renderAiGen(panel) {
       })
       alert.className = 'alert ok'
       alert.textContent = '✓ 已生成 ' + imgs.length + ' 张图片（来自 ' + p.name + ' · ' + model + '）'
+      const requested = +countSel.value
+      if (imgs.length < requested) {
+        alert.textContent += '。注意：该模型/厂商一次最多返回 ' + imgs.length + ' 张（你选择了 ' + requested + ' 张），若需更多请分批生成。'
+      }
     } catch (e) {
       clear(results)
       alert.className = 'alert err'
