@@ -1,7 +1,7 @@
 // 设置中心：所有插件的公共底座。
 // 负责 API Key、默认模型、行业标签、数据源、主题、自定义模型，并持久化到 localStorage。
 import { el, clear, toast } from '../core/ui.js'
-import { getSettings, update, INDUSTRY_PRESETS, DATA_SOURCE_PRESETS, logHistory, getHistory } from '../core/store.js'
+import { getSettings, update, INDUSTRY_PRESETS, logHistory, getHistory } from '../core/store.js'
 import { PROVIDERS, getProvider, callChat } from '../core/aiGateway.js'
 
 export const settingsPlugin = {
@@ -356,26 +356,9 @@ export const settingsPlugin = {
       el('div', { class: 'field', style: 'margin-top:12px' }, [customInput])
     ])
 
-    // ---------- 4. 数据源 ----------
-    const srcWrap = el('div', {})
-    DATA_SOURCE_PRESETS.forEach((d) => {
-      const toggle = el('input', {
-        type: 'checkbox',
-        onchange: (e) => { update((st) => { st.settings.dataSources[d.id] = e.target.checked }); markSaved() }
-      })
-      toggle.checked = !!s.dataSources[d.id]
-      srcWrap.append(el('label', { class: 'switch' }, [
-        el('div', {}, [el('div', { class: 'name' }, [d.name]), el('div', { class: 'desc' }, [d.desc])]),
-        toggle
-      ]))
-    })
-    const srcCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['数据源开关']),
-      srcWrap,
-      el('p', { class: 'hint' }, ['开启后，对应插件（主要是「行业研究」）会显示该来源的输入入口。其中「联网搜索」「IMA 知识库」需先在上方对应配置卡片填写凭证；「本地文件」为本机上传，恒可用；「腾讯文档」暂未接入。开关关闭则对应入口隐藏。'])
-    ])
+    // ---------- 4. 主题 ----------
 
-    // ---------- 5. 主题 ----------
+
     const themeSelect = el('select', {
       onchange: (e) => { update((st) => { st.settings.theme = e.target.value }); markSaved() }
     }, [
@@ -388,7 +371,7 @@ export const settingsPlugin = {
       el('div', { class: 'field' }, [el('label', {}, ['主题']), themeSelect])
     ])
 
-    // ---------- 6. 数据管理（备份 / 导出 / 导入 / 清理） ----------
+    // ---------- 5. 数据管理（备份 / 导出 / 导入 / 清理） ----------
     const listBox = el('div', { class: 'kv-table' })
     const refreshList = () => {
       clear(listBox)
@@ -470,10 +453,9 @@ export const settingsPlugin = {
     ])
     refreshList()
 
-    // ---------- 7. 历史记录（任务执行记录与产物） ----------
+    // ---------- 6. 历史记录（任务执行记录与产物） ----------
     const NAME_MAP = {
       'opwb:ba:v1': '💰 收支分析',
-      'opwb:ir:v1': '📊 行业研究',
       'opwb:ia:v1': '📈 经营分析',
       'opwb:crm:v1': '🤝 客户跟踪',
       'opwb:doc:v1': '📁 专业资料整理',
@@ -492,7 +474,6 @@ export const settingsPlugin = {
           const rev = rows.reduce((a, r) => a + (+r.revenue || 0), 0)
           return `收支分析 · ${rows.length} 个周期 · 合计营收 ¥${rev.toLocaleString()}`
         }
-        case 'opwb:ir:v1': return `行业研究 · ${n('datasets')} 个数据集 · ${n('sources')} 个数据源`
         case 'opwb:ia:v1': return `经营分析 · ${n('rows')} 条记录`
         case 'opwb:crm:v1': {
           const list = o.customers || o
@@ -588,115 +569,12 @@ export const settingsPlugin = {
       el('div', { class: 'field', style: 'margin-top:14px' }, [el('label', {}, ['操作日志']), logBox])
     ])
 
-    // ---------- 数据抓取代理（CORS Proxy） ----------
-    const proxyI = el('input', { type: 'text', value: s.corsProxy || '', placeholder: 'https://你的代理/?url=', disabled: true })
-    const proxyCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['数据抓取代理（CORS Proxy）']),
-      el('p', { class: 'hint' }, ['当前行业研究「③ 导入数据」已改为搜索引擎查找方式，不再使用 CORS 代理抓取网页，避免被屏蔽。此配置项暂时保留，供后续可能的手工代理场景使用，目前不生效。']),
-      el('div', { class: 'field' }, [el('label', {}, ['代理地址前缀（当前未生效）']), proxyI]),
-      el('button', { class: 'btn ghost', disabled: true }, ['保存代理地址'])
-    ])
-
-    // ---------- 4.5 联网搜索配置 ----------
-    const searchCfg = s.search || { provider: 'duckduckgo', key: '', proxy: '', custom: {} }
-    const sProvSel = el('select', {}, [
-      el('option', { value: 'duckduckgo' }, ['DuckDuckGo（免费，无需 API Key）']),
-      el('option', { value: 'brave' }, ['Brave Search（需 Key，免费额度 2000次/月）']),
-      el('option', { value: 'serpapi' }, ['SerpAPI / Google（需 Key）']),
-      el('option', { value: 'custom' }, ['自定义（URL 模板 + 路径）'])
-    ])
-    sProvSel.value = searchCfg.provider || 'duckduckgo'
-    const sKeyWrap = el('div', { class: 'field', style: 'display:' + (sProvSel.value === 'duckduckgo' ? 'none' : '') }, [
-      el('label', {}, ['API Key']),
-      el('input', { type: 'password', value: searchCfg.key || '', placeholder: 'API Key' })
-    ])
-    const sKeyI = sKeyWrap.querySelector('input')
-    const sProxyI = el('input', { type: 'text', value: searchCfg.proxy || '', placeholder: '可选 · 如 https://代理/?url= 或 https://代理/' })
-    const sCustomWrap = el('div', { class: 'field', style: 'display:' + (sProvSel.value === 'custom' ? '' : 'none') }, [
-      el('label', {}, ['URL 模板（用 {q} 占位查询，{key} 占位 Key）']),
-      el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.url) || '', placeholder: 'https://api.example.com/search?q={q}&key={key}' }),
-      el('label', { style: 'margin-top:8px' }, ['结果数组路径 / 标题 / 链接 / 摘要 路径']),
-      el('div', { class: 'row', style: 'gap:6px' }, [
-        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.resultPath) || '', placeholder: 'data.results' }),
-        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.titlePath) || '', placeholder: 'title' }),
-        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.urlPath) || '', placeholder: 'url' }),
-        el('input', { type: 'text', value: (searchCfg.custom && searchCfg.custom.snippetPath) || '', placeholder: 'snippet' })
-      ])
-    ])
-    const toggleSearchFields = () => {
-      const isDDG = sProvSel.value === 'duckduckgo'
-      const isCustom = sProvSel.value === 'custom'
-      sKeyWrap.style.display = isDDG ? 'none' : ''
-      sCustomWrap.style.display = isCustom ? '' : 'none'
-    }
-    sProvSel.onchange = () => { toggleSearchFields(); saveSearch() }
-    const saveSearch = () => {
-      update((st) => {
-        st.settings.search = {
-          provider: sProvSel.value,
-          key: sKeyI.value.trim(),
-          proxy: sProxyI.value.trim(),
-          custom: {
-            url: sCustomWrap.querySelector('input').value.trim(),
-            resultPath: sCustomWrap.querySelectorAll('input')[1].value.trim(),
-            titlePath: sCustomWrap.querySelectorAll('input')[2].value.trim(),
-            urlPath: sCustomWrap.querySelectorAll('input')[3].value.trim(),
-            snippetPath: sCustomWrap.querySelectorAll('input')[4].value.trim()
-          }
-        }
-      })
-      markSaved()
-    }
-    ;[sKeyI, sProxyI].forEach((i) => (i.oninput = saveSearch))
-    sProvSel.onchange = (() => { const f = sProvSel.onchange; return (e) => { f(e); saveSearch() } })()
-    sCustomWrap.querySelectorAll('input').forEach((i) => (i.oninput = saveSearch))
-    const searchCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['联网搜索配置（Web Search）']),
-      el('p', { class: 'hint' }, ['为「行业研究」提供真实联网检索能力。默认使用 DuckDuckGo，无需任何配置即可搜索。如需更精准结果可切换到 Brave/SerpAPI 并填写对应 Key。']),
-      el('div', { class: 'field' }, [el('label', {}, ['搜索服务']), sProvSel]),
-      sKeyWrap,
-      sCustomWrap,
-      el('div', { class: 'field' }, [el('label', {}, ['请求代理（可选）']), sProxyI])
-    ])
-
-    // ---------- 4.6 IMA 知识库配置 ----------
-    const imaCfg = s.ima || { clientId: '', apiKey: '', knowledgeBaseId: '', knowledgeBaseName: '', proxy: '' }
-    const iClientI = el('input', { type: 'text', value: imaCfg.clientId || '', placeholder: 'IMA Client ID' })
-    const iKeyI = el('input', { type: 'password', value: imaCfg.apiKey || '', placeholder: 'IMA API Key' })
-    const iKbI = el('input', { type: 'text', value: imaCfg.knowledgeBaseId || '', placeholder: '知识库 ID（可选，留空检索全部）' })
-    const iProxyI = el('input', { type: 'text', value: imaCfg.proxy || '', placeholder: '可选 · 如 https://代理/?url=' })
-    const saveIma = () => {
-      update((st) => {
-        st.settings.ima = {
-          clientId: iClientI.value.trim(),
-          apiKey: iKeyI.value.trim(),
-          knowledgeBaseId: iKbI.value.trim(),
-          knowledgeBaseName: '',
-          proxy: iProxyI.value.trim()
-        }
-      })
-      markSaved()
-    }
-    ;[iClientI, iKeyI, iKbI, iProxyI].forEach((i) => (i.oninput = saveIma))
-    const imaCard = el('div', { class: 'card' }, [
-      el('h3', {}, ['IMA 知识库配置']),
-      el('p', { class: 'hint' }, ['把你在 ima.qq.com 的 Client ID / API Key 填到这里，「行业研究」即可检索你的个人知识库并纳入 AI 分析。注意：ima.qq.com 主要面向服务端，浏览器直连常被 CORS 拦截；若报错，请填「请求代理」前缀（API 调用走代理不同于网页爬虫，属正常用法）。']),
-      el('div', { class: 'grid cols-2' }, [
-        el('div', { class: 'field' }, [el('label', {}, ['Client ID']), iClientI]),
-        el('div', { class: 'field' }, [el('label', {}, ['API Key']), iKeyI])
-      ]),
-      el('div', { class: 'field' }, [el('label', {}, ['知识库 ID（可选）']), iKbI]),
-      el('div', { class: 'field' }, [el('label', {}, ['请求代理（可选）']), iProxyI])
-    ])
-
     page.append(apiCard)
     page.append(customCard)
-    page.append(el('div', { class: 'grid cols-2' }, [industryCard, srcCard]))
-    page.append(el('div', { class: 'grid cols-2' }, [searchCard, imaCard]))
+    page.append(industryCard)
     page.append(themeCard)
     page.append(dataCard)
     page.append(historyCard)
-    page.append(proxyCard)
 
     // ---------- 保存栏 ----------
     const saveStatus = el('span', { class: 'save-status' }, ['● 修改自动保存已开启'])
