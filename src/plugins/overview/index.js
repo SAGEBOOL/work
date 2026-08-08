@@ -37,7 +37,7 @@ export const overviewPlugin = {
     if (!aiReady) {
       page.append(el('div', { class: 'card ai-setup-card' }, [
         el('h3', {}, ['🤖 默认 AI 尚未配置']),
-        el('p', { class: 'muted' }, ['翻译、行业研究、经营分析等功能的 AI 能力需要它。点下方按钮前往设置，粘贴任意一家厂商的 Key（DeepSeek / 智谱 / 通义等均可，免费且浏览器直连）。']),
+        el('p', { class: 'muted' }, ['翻译、经营分析等功能的 AI 能力需要它。点下方按钮前往设置，粘贴任意一家厂商的 Key（DeepSeek / 智谱 / 通义等均可，免费且浏览器直连）。']),
         el('button', { class: 'btn', onclick: () => navigate('settings') }, ['前往配置 AI →'])
       ]))
     }
