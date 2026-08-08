@@ -42,11 +42,5 @@ export function searchData(q) {
       pushMatch(out, lower, 'biz-analysis', r.name || '收支记录', '营收 ' + (r.revenue || 0) + ' / 成本 ' + (r.cost || 0), { id: r.id })
     })
   } catch { /* ignore */ }
-  try {
-    const ir = JSON.parse(localStorage.getItem('opwb:ir:v1') || 'null')
-    ;(ir?.datasets || []).forEach((d) => {
-      pushMatch(out, lower, 'industry-research', d.name || '数据集', (d.desc || ''), { id: d.id })
-    })
-  } catch { /* ignore */ }
   return out.slice(0, 24)
 }
