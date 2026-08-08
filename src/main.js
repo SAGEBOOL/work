@@ -16,7 +16,6 @@ import { translatePlugin } from './plugins/translate/index.js'
 import { pdfToolsPlugin } from './plugins/pdf-tools/index.js'
 import { imageProcessingPlugin } from './plugins/image-processing/index.js'
 import { fileOrganizerPlugin } from './plugins/file-organizer/index.js'
-import { industryResearchPlugin } from './plugins/industry-research/index.js'
 import { docOrganizerPlugin } from './plugins/doc-organizer/index.js'
 import { crmPlugin } from './plugins/crm/index.js'
 import { bizAnalysisPlugin } from './plugins/biz-analysis/index.js'
@@ -32,7 +31,6 @@ registerPlugin(translatePlugin)
 registerPlugin(pdfToolsPlugin)
 registerPlugin(imageProcessingPlugin)
 registerPlugin(fileOrganizerPlugin)
-registerPlugin(industryResearchPlugin)
 registerPlugin(docOrganizerPlugin)
 registerPlugin(crmPlugin)
 registerPlugin(bizAnalysisPlugin)
